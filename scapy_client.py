@@ -61,7 +61,7 @@ def receive_from_vpn(sock):
 
         if a[0] == vpn_server_ip:
             # decrypt data
-            data = Ether(data)
+            data = IP(data)
             print("vpn data:", data)
 
             send(data, iface="‏‏Ethernet")

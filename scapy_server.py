@@ -31,9 +31,11 @@ def valid(data: bytes) -> bytes | bool:
         checksum = data[0]
         pkt = data[1]
 
-        checksum2 = hashlib.md5(pkt).hexdigest()
+        checksum2 = hashlib.md5(str(Ether(pkt)).encode()).hexdigest()
         if checksum.decode() == checksum2:
+            print("valid packet:", Ether(pkt))
             return pkt
+        print("invalid:", Ether(pkt))
     return False
 
 
@@ -42,10 +44,13 @@ def internet_send(skt):
         data, addr = skt.recvfrom(65535)  # receive from client through udp socket
         pkt = valid(data)
         if pkt:
+            print("True packet")
             new_pkt = nat.udp_recv(pkt, addr)
 
             if new_pkt:
-                send(IP(new_pkt))
+                new_pkt = IP(new_pkt)
+                print("sending to internet:", new_pkt)
+                send(new_pkt)
 
                 # save client's udp port
                 if addr[0] not in clients:
@@ -56,13 +61,15 @@ def internet_send(skt):
 def forward_to_client(pkt, skt):
     data = nat.internet_recv(pkt)
     if data:
-        print(data)
+        print("returning to client:", IP(data))
         addr = nat.get_socket_port(data)
         skt.sendto(data, addr)
 
 
 def internet_recv(s):
-    sniff(prn=lambda p: forward_to_client(p, s), filter="ip")
+    while True:
+        sniff(prn=lambda p: forward_to_client(p, s), filter="ip")
+        print("sniffed stopped")
 
 
 if __name__ == '__main__':
