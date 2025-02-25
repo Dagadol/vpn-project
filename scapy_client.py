@@ -44,8 +44,7 @@ def send_to_vpn(data, sock):
 def scapy_filter(p):
     if IP in p:
         try:
-            if p[IP].src == "10.0.0.5" and nat_class.tcp_udp(p).dport != 5123:  # to prevent infinite loop
-                print(p)
+            if p[IP].src == "10.0.0.5" and nat_class.tcp_udp(p).dport != vpn_port:  # to prevent infinite loop
                 return True
         except AttributeError:
             return False

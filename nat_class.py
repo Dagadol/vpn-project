@@ -8,14 +8,15 @@ from scapy.layers.l2 import Ether
 def update_checksum(bad_bytes: bytes) -> bytes:  # update checksum using scapy. maybe try with struct later
     # turn bytes to scapy structured
     scapy_struct = Ether(bad_bytes)
+    if scapy_struct.haslayer(IP):
 
-    # get the IP and UDP packet
-    ip_pkt = scapy_struct[IP]
-    higher_pkt = tcp_udp(scapy_struct)
+        # get the IP and UDP packet
+        ip_pkt = scapy_struct[IP]
+        higher_pkt = tcp_udp(scapy_struct)
 
-    # easily remove the IP's header checksum
-    del ip_pkt.chksum
-    del higher_pkt.chksum
+        # easily remove the IP's header checksum
+        del ip_pkt.chksum
+        del higher_pkt.chksum
 
     # return bytes(scapy_struct.__class__(bytes(scapy_struct)))
     return bytes(scapy_struct)
@@ -99,8 +100,11 @@ class ClassNAT:
             tcp_udp(packet_data).sport = self.nat_table[index][1]  # get the public port
 
             # update checksum
-            data = update_checksum(bytes(packet_data))
-
+            # data = update_checksum(bytes(packet_data))
+            packet_ip = packet_data[IP]
+            del packet_ip.chksum
+            del tcp_udp(packet_ip).chksum
+            data = bytes(packet_data)
             return data
 
         return None  # invalid address
@@ -142,7 +146,6 @@ class ClassNAT:
                 # tcp_udp(data).dport = addr[1]
                 # data = data[IP]
 
-
                 # fixme didnt consider changes in the Ethernet header
                 # might need to write a new packet instead of updating existing packet `data`
                 """
@@ -164,7 +167,7 @@ class ClassNAT:
                 """
 
                 # update checksum
-                data = update_checksum(data)
+                data = IP(bytes(data))
                 # data contain enough info in order to
                 # extract variables to match `sendto(data, (addr, -))`
                 # but is missing the port of the socket in place -

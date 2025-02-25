@@ -45,7 +45,7 @@ def internet_send(skt):
             new_pkt = nat.udp_recv(pkt, addr)
 
             if new_pkt:
-                send(Ether(new_pkt))
+                send(IP(new_pkt))
 
                 # save client's udp port
                 if addr[0] not in clients:
