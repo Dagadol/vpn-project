@@ -144,7 +144,7 @@ class ClassNAT:
                 #ip_header.dst = addr[0]  # client's IP address
                 layer4.dport = addr[1]  # client's original port
 
-                data = IP(dst=addr[0], src=data[IP]) / layer4
+                data = IP(dst=addr[0], src=data[IP].src) / layer4
                 # tcp_udp(data).dport = addr[1]
                 # data = data[IP]
 
