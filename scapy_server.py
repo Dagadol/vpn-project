@@ -31,7 +31,7 @@ def valid(data: bytes) -> bytes | bool:
         checksum = data[0]
         pkt = data[1]
 
-        checksum2 = hashlib.md5(str(Ether(pkt)).encode()).hexdigest()
+        checksum2 = hashlib.md5(str(pkt).encode()).hexdigest()
         if checksum.decode() == checksum2:
             print("valid packet:", Ether(pkt))
             return pkt
@@ -61,9 +61,9 @@ def internet_send(skt):
 def forward_to_client(pkt, skt):
     data = nat.internet_recv(pkt)
     if data:
-        print("returning to client:", IP(data))
+        print("returning to client:", data)
         addr = nat.get_socket_port(data)
-        skt.sendto(data, addr)
+        skt.sendto(bytes(data), addr)
 
 
 def internet_recv(s):

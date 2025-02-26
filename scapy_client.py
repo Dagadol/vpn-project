@@ -36,7 +36,7 @@ def main():
 def send_to_vpn(data, sock):
     # encrypt the data first
     data = data
-    this_checksum = hashlib.md5(str(data).encode()).hexdigest()
+    this_checksum = hashlib.md5(str(bytes(data)).encode()).hexdigest()
     print(this_checksum, "data:", data)
     sock.sendto(this_checksum.encode() + b"~~" + bytes(data), (vpn_server_ip, vpn_port))
 
@@ -58,7 +58,7 @@ def receive_from_adapter(s):
 def receive_from_vpn(sock):
     while True:
         data, a = sock.recvfrom(65535)
-
+        print("received")
         if a[0] == vpn_server_ip:
             # decrypt data
             data = IP(data)

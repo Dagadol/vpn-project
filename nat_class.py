@@ -3,6 +3,7 @@ from collections import deque
 from scapy.layers.inet import IP, UDP, TCP
 from scapy.layers.l2 import Ether
 # from scapy.utils import checksum
+import time
 
 
 def update_checksum(bad_bytes: bytes) -> bytes:  # update checksum using scapy. maybe try with struct later
@@ -50,8 +51,9 @@ class ClassNAT:
             self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
 
         self.vpn_ip = my_ip
-        self.port_pool = deque(range(50000, 50100))  # Available NAT ports
+        self.port_pool = deque(range(50000, 50500))  # Available NAT ports
         self.nat_table = []  # format: ((client.src, client.sport), public port, (client.dst, client.dport))
+        self.nat_timeouts = {}  # Track last activity time
 
     def get_socket_port(self, data=None, ip: str = "") -> None | tuple[any, any]:
         if ip in self.users_addr:
@@ -104,7 +106,7 @@ class ClassNAT:
             packet_ip = packet_data[IP]
             del packet_ip.chksum
             del tcp_udp(packet_ip).chksum
-            data = bytes(packet_data)
+            data = bytes(packet_ip)
             return data
 
         return None  # invalid address
@@ -131,18 +133,18 @@ class ClassNAT:
         dict_table = {sublist[1]: i for i, sublist in enumerate(self.nat_table)}
         if public_port in dict_table:
             index = dict_table[public_port]
-            if self.nat_table[index][2] == (source_ip, source_port):
 
+            if self.nat_table[index][2] == (source_ip, source_port):
                 # client address info
                 addr = self.nat_table[index][0]
 
-                ip_header = data[IP]
+                #ip_header = data[IP]
 
                 # update destinations to client address
-                ip_header.dst = addr[0]  # client's IP address
+                #ip_header.dst = addr[0]  # client's IP address
                 layer4.dport = addr[1]  # client's original port
 
-                data = ip_header.remove_payload() / layer4
+                data = IP(dst=addr[0], src=data[IP]) / layer4
                 # tcp_udp(data).dport = addr[1]
                 # data = data[IP]
 
@@ -173,3 +175,15 @@ class ClassNAT:
                 # but is missing the port of the socket in place -
                 return data  # `data` is in format of scapy packet
         return None
+
+    def cleanup_nat_table(self):
+        """Remove stale NAT entries"""
+        while True:
+            time.sleep(30)
+            now = time.time()
+            stale = [port for port, t in self.nat_timeouts.items() if now - t > 300]
+            for port in stale:
+                del self.nat_timeouts[port]
+                self.port_pool.append(port)
+                self.nat_table = [i for i in self.nat_table if i[1] != port]
+            print(f"Cleanup: Removed {len(stale)} entries")
