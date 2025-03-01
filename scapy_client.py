@@ -8,7 +8,6 @@ from vpn_client import connected
 
 
 # todo, all the settings beneath automatically; according to the vpn server or main server instructions
-og_gateway_ip = "10.0.0.138"
 # vpn_server_ip = "10.0.0.20"
 
 # Set virtual adapter manually
@@ -32,6 +31,7 @@ def start_connection():
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_socket.bind((connected[1].private_ip, connected[1].my_port))
     print("connecting to server")
+
     t1 = threading.Thread(target=receive_from_adapter, args=[udp_socket])
     t2 = threading.Thread(target=receive_from_vpn, args=[udp_socket])
     t1.start()
@@ -66,7 +66,11 @@ def scapy_filter(p):
 
 def active_thread():
     if connected:
-        return not connected[1].active
+        if not connected[1].active:
+            print("current thread is closing")
+            return True
+        else:
+            return False
     return True
 
 
@@ -77,6 +81,7 @@ def receive_from_adapter(s):
     :return:
     """
     sniff(prn=lambda p: send_to_vpn(p, s), lfilter=scapy_filter, iface=connected[0].name(), stop_filter=active_thread)
+    print("closing confirmed from sniff")
 
 
 def receive_from_vpn(sock):
@@ -90,6 +95,7 @@ def receive_from_vpn(sock):
 
             send(data)
             # if data[IP].src == vpn_server_ip:
+    print("closing confirmed from udp")
 
 
 if __name__ == '__main__':

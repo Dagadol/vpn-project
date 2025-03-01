@@ -1,14 +1,12 @@
-import random
+import random, os
 import socket
 import threading
 from scapy_client import start_connection
-import scapy_client
 import connect_protocol
 from adapter_conf import Adapter, Connection
 
 connected = tuple()
 vpn_thread = threading.Thread(target=start_connection)
-og_gateway_ip = "10.0.0.138"
 main_server_addr = ("10.0.0.20", 5500)
 
 avail_commands = """
@@ -20,17 +18,9 @@ Else: show list of commands
 """
 
 
-# Connect via an SSL to VPN server (for now), and get private key for an AES symmetric encryption
-def first_connection() -> str:
-    """
-
-    :return: AES key from the server
-    """
-    pass
-
-
 def handle_exit(skt):
-    handle_connect(skt)
+    return handle_connect(skt)
+
 
 def handle_connect(skt):
     global connected
@@ -39,7 +29,6 @@ def handle_connect(skt):
         return False
 
     port = random.randint(50600, 54000)
-    print("assigned port:", port)
 
     skt.send(connect_protocol.create_msg(str(port), "connect"))  # could be used later after database
     cmd, msg = connect_protocol.get_msg(skt)  # should return (vpn_ip~vpn_port~vm_ip~my_private_ip)
@@ -62,6 +51,8 @@ def handle_connect(skt):
     connected[1].active = True  # let scapy client know it's active (simplified event)
     vpn_thread.start()
 
+    return True
+
 
 def handle_disconnect(skt):
     global connected
@@ -80,6 +71,8 @@ def handle_disconnect(skt):
     # remove adapter
     connected[0].delete_adapter()
     connected = tuple()
+
+    return True
 
 
 def handle_change(skt):
@@ -111,6 +104,8 @@ def handle_change(skt):
     connected[1].active = True
     vpn_thread.start()
 
+    return True
+
 
 def wait_for_command(skt):
     commands = {"connect": handle_connect,
@@ -123,7 +118,7 @@ def wait_for_command(skt):
             print(avail_commands + "\n")
             continue
         if command == "exit":
-            handle_exit(skt)
+            print(handle_exit(skt))
             break
         feedback = commands[command](skt)
         print(feedback)
