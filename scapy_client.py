@@ -1,4 +1,5 @@
-from scapy.all import *
+import threading
+from scapy.all import sniff, send
 import socket
 import hashlib
 import nat_class
@@ -14,7 +15,7 @@ vpn_server_ip = "10.0.0.20"
 virtual_adapter_ip = "10.0.0.50"
 virtual_adapter_name = "wrgrd"  # wireguard tunnel
 vpn_port = 5123
-my_port = 8080
+my_port = 8800
 
 private_ip = "10.0.0.11"
 
@@ -73,7 +74,7 @@ def receive_from_vpn(sock):
         print("received")
         if a[0] == vpn_server_ip:
             # decrypt data
-            data = IP(data)
+            data = Ether(data)
             print("vpn data:", data)
 
             send(data, iface=virtual_adapter_name)

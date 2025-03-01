@@ -1,6 +1,7 @@
 from collections import deque
 
 from scapy.layers.inet import IP, UDP, TCP
+from scapy.layers.l2 import Ether
 import time
 
 
@@ -16,7 +17,7 @@ def update_checksum(bad_bytes: bytes) -> bytes:  # update checksum using scapy. 
     return bytes(scapy_struct)
 
 
-def tcp_udp(p):
+def tcp_udp(p):  # could be replaced by p[2]
     """
     get the TCP/UDP layer of the packet.
     :param p: packet in scapy structure
@@ -78,7 +79,7 @@ class ClassNAT:
         if packet_data.src in self.users_addr:
 
             # check addr validity if vm IP is valid
-            if self.users_addr[packet_data.src] is not addr:
+            if self.users_addr[packet_data.src] != addr:
                 print("spoof attack, from:", addr)
                 return None
 
@@ -118,15 +119,19 @@ class ClassNAT:
         print("non assigned addr:", addr)
         return None  # invalid address
 
-    def internet_recv(self, data: IP) -> IP | None:
+    def internet_recv(self, ether_header: Ether) -> Ether | None:
         """
         get data in format of scapy, return data with updated destinations
         return address info of the client
 
-        :param data: scapy TCP/UDP packet
-        :return: data, client's ip address
+        :param ether_header: scapy Ether packet
+        :return:
         """
         # get layer 4 of the packet
+
+        data = ether_header[IP]
+        ether_header.remove_payload()
+
         layer4 = tcp_udp(data)
         if not layer4:
             print("invalid internet packet struct:", data)
@@ -166,12 +171,12 @@ class ClassNAT:
             """
 
             # update checksum
-            data = IP(update_checksum(bytes(data)))
+            data = ether_header / IP(update_checksum(bytes(data)))  # might not be needed
             # data contains not enough info in order to
             # extract variables to match `sendto(data, (-, -))`
             # it is missing ip and port.
             # in order to get these, you can use the function `get_socket_dst` in the server code
-            return data  # `data` is in format of scapy packet
+            return data  # `data` is in format of scapy ether packet
 
         print("invalid connection")
         return None

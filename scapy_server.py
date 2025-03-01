@@ -54,7 +54,7 @@ def internet_send(skt):
                     clients[addr[0]] = addr[1]
                     print("new client saved: ", addr)  # should not get here
             else:
-                print("invalid packet:", pkt)
+                print("invalid packet:", IP(pkt))
 
 
 def forward_to_client(pkt, skt):
