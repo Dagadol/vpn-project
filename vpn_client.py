@@ -1,4 +1,5 @@
-import random, os
+import random
+import subprocess
 import socket
 import threading
 from scapy_client import start_connection
@@ -29,6 +30,8 @@ def handle_connect(skt):
         return False
 
     port = random.randint(50600, 54000)
+    while port in subprocess.run("netstat -n", capture_output=True, text=True, shell=True):  # if port is in use
+        port = random.randint(50600, 54000)  # create new port
 
     skt.send(connect_protocol.create_msg(str(port), "connect"))  # could be used later after database
     cmd, msg = connect_protocol.get_msg(skt)  # should return (vpn_ip~vpn_port~vm_ip~my_private_ip)
