@@ -1,9 +1,9 @@
-from scapy.all import *
 import socket
 import hashlib
+import threading
+from scapy.all import sniff, send
 import nat_class
 from scapy.layers.inet import IP
-from scapy.layers.l2 import Ether
 
 
 # todo, all the settings beneath automatically; according to the vpn server or main server instructions
@@ -14,7 +14,7 @@ vpn_server_ip = "10.0.0.20"
 virtual_adapter_ip = "10.0.0.50"
 virtual_adapter_name = "wrgrd"  # wireguard tunnel
 vpn_port = 5123
-my_port = 8080
+my_port = 8800
 
 private_ip = "10.0.0.11"
 
@@ -76,7 +76,7 @@ def receive_from_vpn(sock):
             data = IP(data)
             print("vpn data:", data)
 
-            send(data, iface=virtual_adapter_name)
+            send(data)
             # if data[IP].src == vpn_server_ip:
 
 
