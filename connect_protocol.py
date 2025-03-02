@@ -1,7 +1,7 @@
 import socket
 
 FIXED_LEN = 4
-command_list = ["connect", "dconnect", "change", "shutdown", "connect_0", "connect_1", "change_0", "change_1"]
+command_list = ["connect", "dconnect", "change", "shutdown", "connect_0", "connect_1", "change_0", "change_1", "error"]
 
 
 def create_msg(data: str, cmd: str) -> bytes | None:
@@ -25,6 +25,11 @@ def create_msg(data: str, cmd: str) -> bytes | None:
 
 
 def get_msg(skt):
+    """
+
+    :param skt:
+    :return: cmd, msg
+    """
     # get lengths
     len_of_msg = int(skt.recv(FIXED_LEN).decode())
     len_of_cmd = int(skt.recv(1).decode())

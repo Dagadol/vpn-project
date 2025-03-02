@@ -8,7 +8,7 @@ import threading
 clients = {"10.0.0.50": ("10.0.0.11", 8800)}  # virtual adapter: (skt.ip, skt.port)
 nat = nat_class.ClassNAT(my_ip="10.0.0.20", users=clients)
 socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-socket.bind(("0.0.0.0", 5123))
+socket.bind(("0.0.0.0", udp_port))
 
 
 def add_user(addr):

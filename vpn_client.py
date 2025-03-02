@@ -20,7 +20,7 @@ Else: show list of commands
 
 
 def handle_exit(skt):
-    return handle_connect(skt)
+    return handle_disconnect(skt, "shutdown")
 
 
 def handle_connect(skt):
@@ -57,14 +57,14 @@ def handle_connect(skt):
     return True
 
 
-def handle_disconnect(skt):
+def handle_disconnect(skt, cmd: str = "dconnect"):
     global connected
     if not connected:
         print("already disconnected")
 
     vpn = connected[1].vpn_ip  # connected vpn server's ip
     subnet_ip = connected[0].ip  # virtual interface ip
-    skt.send(connect_protocol.create_msg(vpn + "~" + subnet_ip, "dconnect"))  # let the server handle the vpn server
+    skt.send(connect_protocol.create_msg(vpn + "~" + subnet_ip, cmd))  # let the server handle the vpn server
 
     # handle client side disconnection
     connected[1].active = False
@@ -95,8 +95,9 @@ def handle_change(skt):
 
     # ending thread
     connected[1].active = False
+    print("disconnecting from vpn server")
     vpn_thread.join()
-    print("disconnecting from server")
+    print("successfully disconnected")
 
     vpn_ip, vpn_port, vm_ip = msg.split("~")
 
@@ -129,7 +130,9 @@ def wait_for_command(skt):
 
 def main():
     my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print("connecting to main server...")
     my_socket.connect(main_server_addr)
+    print("connected to main server")
 
     wait_for_command(my_socket)
     # close connection
