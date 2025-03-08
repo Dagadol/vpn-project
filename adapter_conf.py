@@ -47,9 +47,9 @@ class Adapter:
         private_key = base64.b64encode(os.urandom(32)).decode('utf-8')
 
         # create minimal wireguard configuration
-        config_content = f"""[Interface]
+        config_content = f"""
+        [Interface]
         PrivateKey = {private_key}
-        ListenPort = 51820
         """
         file_name = f"{self.__name}.conf"
 
@@ -57,8 +57,14 @@ class Adapter:
             with open(file_name, "w") as f:
                 f.write(config_content)
 
+            # Get the directory of the current script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # Combine the script directory with the filename to get the full path
+            file_path = os.path.join(script_dir, file_name)
+
             # install the tunnel service (requires WireGuard to be installed)
-            os.system(f"wireguard.exe /installtunnelservice {file_name}")
+            os.system(f"wireguard.exe /installtunnelservice {file_path}")
 
             time.sleep(3)  # allow time for interface creation
         finally:
