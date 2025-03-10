@@ -64,7 +64,7 @@ class Adapter:
             file_path = os.path.join(script_dir, file_name)
 
             # install the tunnel service (requires WireGuard to be installed)
-            os.system(f"wireguard.exe /installtunnelservice {file_path}")
+            os.system(f"wireguard.exe /installtunnelservice \"{file_path}\"")
 
             time.sleep(3)  # allow time for interface creation
         finally:
@@ -87,7 +87,7 @@ class Adapter:
 
     def delete_adapter(self):
         if check_interface_exists(self.__name):
-            os.system(f"netsh interface set interface {self.__name} disable")
-            os.system(f"wireguard.exe /uninstalltunnelservice {self.__name}")
+            os.system(f"netsh interface set interface \"{self.__name}\" disable")
+            os.system(f"wireguard.exe /uninstalltunnelservice \"{self.__name}\"")
 
             print("adapter was removed")
