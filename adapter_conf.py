@@ -91,3 +91,5 @@ class Adapter:
             os.system(f"wireguard.exe /uninstalltunnelservice \"{self.__name}\"")
 
             print("adapter was removed")
+        else:
+            print("adapter does not exist")
