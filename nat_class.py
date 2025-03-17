@@ -39,11 +39,12 @@ def tcp_udp(p):
 
 
 class ClassNAT:
-    def __init__(self, users, my_ip):
-        if users:  # todo, i should be the one to assign IPs to the virtual adapters
-            self.users_addr = users  # users allowed to connect to this server
-        else:
-            self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
+    def __init__(self, my_ip, users=None):
+        # if users:  # todo, i should be the one to assign IPs to the virtual adapters
+        # set users allowed to connect to this server
+        self.users_addr = users  # this is equal to users even if users is None, so self.users_addr will point to users
+        # else:
+        # self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
 
         self.vpn_ip = my_ip
         self.port_pool = deque(range(50000, 50500))  # Available NAT ports
@@ -78,7 +79,7 @@ class ClassNAT:
         if packet_data.src in self.users_addr:
 
             # check addr validity if vm IP is valid
-            if self.users_addr[packet_data.src] is not addr:
+            if self.users_addr[packet_data.src] != addr:
                 print("spoof attack, from:", addr)
                 return None
 

@@ -2,6 +2,7 @@ import socket
 import threading
 import random
 import connect_protocol
+import scapy_server
 
 
 server_ip = "10.0.0.20"
@@ -10,8 +11,10 @@ udp_port = 5123  # could be tcp port for aes key, then in there receive the udp 
 
 ADDRESSES = tuple(("10.2.0.1", "10.2.0.2"))  # unchangeable value
 available = list(reversed(ADDRESSES))
-clients = dict()
-keys = dict()  # client_ip: key
+# clients = dict()
+# keys = dict()  # client_ip: key
+
+vpn = scapy_server.OpenServer(server_ip)
 
 
 def tcp_connection(client_ip, this_port):
@@ -37,15 +40,16 @@ def tcp_connection(client_ip, this_port):
             # apply diffie-helman protocol
             shared_key = connect_protocol.dh_send(conn)  # get the shared key
 
-            keys[client_ip] = shared_key  # save the key
+            vpn.keys[client_ip] = shared_key  # save the key
 
             # send over the udp port to the client of this VPN server
             data = connect_protocol.create_msg(str(udp_port), "f_conn", shared_key)  # f stands for first
             conn.send(data)
 
+            vpn.open_conn(udp_port=udp_port)
+            conn.close()  # close the temp connection
             break  # break the loop
-
-        conn.close()  # close the temp connection
+        this_sock.close()
 
 
 def handle_checkup(my_socket):
@@ -67,8 +71,8 @@ def handle_checkup(my_socket):
         client_ip, client_port = msg.split("~")
 
         # add new client
-        clients[v_ip] = (client_ip, client_port)
-
+        vpn.clients[v_ip] = (client_ip, client_port)
+        vpn.update_addr()
 
         # vpn server is always on, therefore we don't need to start the thread of it.
         # although I would start a thread for the tcp connection between the client and this server
@@ -81,16 +85,28 @@ def handle_checkup(my_socket):
 
 
 def handle_remove(skt, v_addr):
-    if v_addr not in clients:
+    global available
+    if v_addr not in vpn.clients:
         skt.send(connect_protocol.create_msg("user does not exit", "error"))
-    ip = clients[v_addr][0]  # client's ip
-    del keys[ip]
-    del clients[v_addr]
+    ip = vpn.clients[v_addr][0]  # client's ip
+
+    # remove user's data
+    del vpn.keys[ip]
+    # let vpn handle the remove
+    vpn.remove_client(v_addr)
+
+    # add back the address
     available.append(v_addr)
+
+    # ack
     skt.send(connect_protocol.create_msg("user has been removed", "remove"))
 
+    if not vpn.clients:
+        vpn.close_conn()
+        available = list(reversed(ADDRESSES))
 
-def handle_server(my_socket):
+
+def handle_server(my_socket):  # todo: add thread distribution
     while True:
         cmd, msg = connect_protocol.get_msg(my_socket)
         if cmd == "checkup":

@@ -37,7 +37,7 @@ def first_connection() -> bytes | None:
     shared_key = connect_protocol.dh_get(my_socket)
 
     # receive the correct vpn_port
-    cmd, data = connect_protocol.get_msg(my_socket, True)
+    cmd, data = connect_protocol.get_msg(my_socket, shared_key)
 
     my_socket.close()  # close connection
     if cmd != "f_conn":
@@ -45,13 +45,12 @@ def first_connection() -> bytes | None:
         return None
 
     # set the port
-    udp_port = connect_protocol.decrypt(data, shared_key)
-    connected[1].vpn_port = udp_port
+    connected[1].vpn_port = data
 
     return shared_key  # return the key
 
 
-def start_connection():
+def start_connection():  # fixme this wont work because you cant just import connect
     print("connecting to server")
     key = first_connection()
     if key:
@@ -71,13 +70,16 @@ def start_connection():
         print("udp socket was closed")
 
 
-def send_to_vpn(data, sock, key):
+def send_to_vpn(pkt, sock, key):
     # encrypt the data first
-    data = bytes(data)
+    data = bytes(pkt)
     data = connect_protocol.encrypt(data, key)
 
+    # create an MD5 checksum
     this_checksum = hashlib.md5(data).hexdigest()
-    print(this_checksum, "data:", data)
+    print(this_checksum, "packet:", pkt)
+
+    # send to server
     sock.sendto(this_checksum.encode() + b"~~" + data, (connected[1].vpn_ip, connected[1].vpn_port))
 
 
@@ -120,6 +122,7 @@ def receive_from_vpn(sock, key):
         data, a = sock.recvfrom(65535)
         print("received")
         if a[0] == connected[1].vpn_ip:
+
             # decrypt data
             data = connect_protocol.decrypt(data, key)
 

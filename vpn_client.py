@@ -7,7 +7,7 @@ import connect_protocol
 from adapter_conf import Adapter, Connection
 
 connected = tuple()
-vpn_thread = threading.Thread(target=start_connection)
+vpn_thread = threading.Thread(target=start_connection)  # fixme, do like in vpn_server
 main_server_addr = ("10.0.0.20", 5500)
 
 avail_commands = """
