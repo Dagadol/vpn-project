@@ -47,7 +47,8 @@ class ClassNAT:
         # self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
 
         self.vpn_ip = my_ip
-        self.port_pool = deque(range(50000, 50500))  # Available NAT ports
+        # Available NAT ports
+        self.port_pool = deque(range(50000, 50500))  # might want to validate that all these ports are available
         self.nat_table = []  # format: ((client.src, client.sport), public port, (client.dst, client.dport))
         self.nat_timeouts = {}  # Track last activity time
 
