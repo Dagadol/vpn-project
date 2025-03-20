@@ -2,137 +2,160 @@ import socket
 import hashlib
 import threading
 from scapy.all import sniff, send
+from scapy.layers.inet import IP
 
 import connect_protocol
 import nat_class
-from scapy.layers.inet import IP
-from vpn_client import connected
 
 
-# todo, all the settings beneath automatically; according to the vpn server or main server instructions
-# vpn_server_ip = "10.0.0.20"
+class VPNClient:
+    def __init__(self, vpn_server_ip: str, virtual_adapter_ip: str, virtual_adapter_name: str,
+                 initial_vpn_port: int, client_port: int, private_ip: str):
+        self.vpn_ip = vpn_server_ip
+        self.virtual_adapter_ip = virtual_adapter_ip
+        self.virtual_adapter_name = virtual_adapter_name
+        self.vpn_port = initial_vpn_port  # Will be updated during first connection
+        self.my_port = client_port
+        self.private_ip = private_ip
 
-# Set virtual adapter manually
-# virtual_adapter_ip = "10.0.0.50"
-# virtual_adapter_name = "wrgrd"  # wireguard tunnel
-# vpn_port = 5123
-# my_port = 8800
+        self.active = False
+        self.udp_socket = None
+        self.key = None
+        self.receive_thread = None
+        self.sniff_thread = None
 
-# private_ip = "10.0.0.11"
+    def _first_connection(self) -> bytes | None:
+        """Establish initial TCP connection and perform key exchange"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        while True:
+            try:
+                sock.connect((self.vpn_ip, self.vpn_port))
+                break
+            except Exception as e:
+                print(f"Connection error: {e}")
+                continue
 
+        shared_key = connect_protocol.dh_get(sock)
+        cmd, data = connect_protocol.get_msg(sock, shared_key)
 
-def first_connection() -> bytes | None:
-    """
-    get shared key, and set the correct port of the vpn server
-    :return: AES key from the server or None in case of an error
-    """
-    my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    while True:
-        try:
-            my_socket.connect((connected[1].vpn_ip, connected[1].vpn_port))
-            break
-        except Exception as e:
-            print("error at first connection\n", e)
+        if cmd != "f_conn":
+            print(f"First connection failed: {cmd} {data}")
+            sock.close()
+            return None
 
-    shared_key = connect_protocol.dh_get(my_socket)
+        # Update with negotiated port from server
+        self.vpn_port = int(data)
+        sock.close()
+        return shared_key
 
-    # receive the correct vpn_port
-    cmd, data = connect_protocol.get_msg(my_socket, shared_key)
+    def open_connection(self):
+        """Start VPN connection and begin processing threads"""
+        self.key = self._first_connection()
+        if not self.key:
+            print("Failed to establish initial connection")
+            return
 
-    my_socket.close()  # close connection
-    if cmd != "f_conn":
-        print("error at first connection:", cmd, data)
-        return None
+        self.active = True
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_socket.bind((self.private_ip, self.my_port))
+        self.udp_socket.settimeout(1)  # For cleaner shutdown
 
-    # set the port
-    connected[1].vpn_port = data
+        # Start processing threads
+        self.sniff_thread = threading.Thread(target=self._receive_from_adapter)
+        self.receive_thread = threading.Thread(target=self._receive_from_vpn)
 
-    return shared_key  # return the key
+        self.sniff_thread.start()
+        self.receive_thread.start()
+        print("VPN connection established")
 
+    def end_connection(self):
+        """Gracefully shutdown VPN connection"""
+        self.active = False
+        print("Shutting down VPN connection...")
 
-def start_connection():  # fixme this wont work because you cant just import connect
-    print("connecting to server")
-    key = first_connection()
-    if key:
+        if self.udp_socket:
+            self.udp_socket.close()
 
-        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind((connected[1].private_ip, connected[1].my_port))
+        if self.sniff_thread:
+            self.sniff_thread.join()
+        if self.receive_thread:
+            self.receive_thread.join()
 
-        t1 = threading.Thread(target=receive_from_adapter, args=[udp_socket, key])
-        t2 = threading.Thread(target=receive_from_vpn, args=[udp_socket, key])
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
+        print("VPN connection terminated")
 
-        # close connection
-        udp_socket.close()
-        print("udp socket was closed")
+    def _send_to_vpn(self, pkt):
+        """Encrypt and send packet to VPN server"""
+        raw_data = bytes(pkt)
+        encrypted = connect_protocol.encrypt(raw_data, self.key)
+        checksum = hashlib.md5(encrypted).hexdigest()
+        self.udp_socket.sendto(
+            f"{checksum}~~".encode() + encrypted,
+            (self.vpn_ip, self.vpn_port))
+        print(f"Sent packet to VPN: {pkt.summary()}")
 
+    def _scapy_filter(self, pkt):
+        """Filter for packets from virtual adapter not destined for VPN"""
+        if IP in pkt:
+            try:
+                return (pkt[IP].src == self.virtual_adapter_ip and
+                        nat_class.tcp_udp(pkt).dport != self.vpn_port)
+            except AttributeError:
+                return False
+        return False
 
-def send_to_vpn(pkt, sock, key):
-    # encrypt the data first
-    data = bytes(pkt)
-    data = connect_protocol.encrypt(data, key)
+    def _receive_from_adapter(self):
+        """Sniff virtual adapter and forward to VPN"""
+        sniff(
+            prn=lambda p: self._send_to_vpn(p),
+            lfilter=self._scapy_filter,
+            iface=self.virtual_adapter_name,
+            stop_filter=lambda: not self.active
+        )
+        print("Stopped sniffing virtual adapter")
 
-    # create an MD5 checksum
-    this_checksum = hashlib.md5(data).hexdigest()
-    print(this_checksum, "packet:", pkt)
+    def _receive_from_vpn(self):
+        """Receive from VPN server and inject into virtual adapter"""
+        while self.active:
+            try:
+                data, addr = self.udp_socket.recvfrom(65535)
+                if addr[0] != self.vpn_ip:
+                    continue
 
-    # send to server
-    sock.sendto(this_checksum.encode() + b"~~" + data, (connected[1].vpn_ip, connected[1].vpn_port))
+                # Split checksum and data
+                checksum, _, encrypted = data.partition(b"~~")
+                if hashlib.md5(encrypted).hexdigest() != checksum.decode():
+                    print("Checksum mismatch!")
+                    continue
 
+                decrypted = connect_protocol.decrypt(encrypted, self.key)
+                pkt = IP(decrypted)
+                send(pkt, verbose=0)
+                print(f"Injected packet: {pkt.summary()}")
 
-def scapy_filter(p):
-    if IP in p:
-        try:
-            # to prevent infinite loop
-            if (p[IP].src == connected[0].ip and
-                    not nat_class.tcp_udp(p).dport == connected[1].vpn_port):  # FROM adapter; NOT to VPN;
-                return True
-        except AttributeError:
-            return False
-    return False
-
-
-def active_thread():
-    if connected:
-        if not connected[1].active:
-            print("current thread is closing")
-            return True
-        else:
-            return False
-    return True
-
-
-def receive_from_adapter(s, k):
-    """
-    sniff of the virtual interface, send over to server via Ethernet interface
-    :param k: key
-    :param s: UDP socket
-    :return:
-    """
-    sniff(prn=lambda p: send_to_vpn(p, s, k), lfilter=scapy_filter, iface=connected[0].name(),
-          stop_filter=active_thread)
-    print("closing confirmed from sniff")
-
-
-def receive_from_vpn(sock, key):
-    while not active_thread():
-        data, a = sock.recvfrom(65535)
-        print("received")
-        if a[0] == connected[1].vpn_ip:
-
-            # decrypt data
-            data = connect_protocol.decrypt(data, key)
-
-            data = IP(data)
-            print("vpn data:", data)
-
-            send(data)
-            # if data[IP].src == vpn_server_ip:
-    print("closing confirmed from udp")
+            except (socket.timeout, ValueError):
+                continue
+            except Exception as e:
+                if self.active:
+                    print(f"Receive error: {e}")
+                break
+        print("Stopped receiving from VPN server")
 
 
 if __name__ == '__main__':
-    start_connection()
+    # Example usage
+    client = VPNClient(
+        vpn_server_ip="10.0.0.20",
+        virtual_adapter_ip="10.0.0.50",
+        virtual_adapter_name="wrgrd",
+        initial_vpn_port=5123,
+        client_port=8800,
+        private_ip="10.0.0.11"
+    )
+
+    try:
+        client.open_connection()
+        # Keep main thread alive while connection is active
+        while client.active:
+            threading.Event().wait(1)
+    except KeyboardInterrupt:
+        client.end_connection()
