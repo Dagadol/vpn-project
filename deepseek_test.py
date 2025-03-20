@@ -1,7 +1,6 @@
 import random
 import subprocess
 import socket
-import threading
 import connect_protocol
 from adapter_conf import Adapter
 from scapy_client import VPNClient
