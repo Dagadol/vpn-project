@@ -6,7 +6,7 @@ import atexit
 
 def check_interface_exists(name):
     """Check if a network interface exists by name."""
-    return os.system(f"netsh interface show interface {name}") == 0  # does exist
+    return os.system(f"netsh interface show interface \"{name}\"") == 0  # does exist
 
 
 class Connection:
