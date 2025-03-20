@@ -144,12 +144,12 @@ class VPNClient:
 if __name__ == '__main__':
     # Example usage
     client = VPNClient(
-        vpn_server_ip="10.0.0.20",
+        vpn_server_ip="10.0.0.22",
         virtual_adapter_ip="10.0.0.50",
         virtual_adapter_name="wrgrd",
         initial_vpn_port=5123,
         client_port=8800,
-        private_ip="10.0.0.11"
+        private_ip="10.0.0.12"
     )
 
     try:
