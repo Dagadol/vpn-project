@@ -43,8 +43,9 @@ class ClassNAT:
         # if users:  # todo, i should be the one to assign IPs to the virtual adapters
         # set users allowed to connect to this server
         self.users_addr = users  # this is equal to users even if users is None, so self.users_addr will point to users
+        if users is None:  # fixme, i dont really like this, because i want users_addr to point at user
+            self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
         # else:
-        # self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
 
         self.vpn_ip = my_ip
         # Available NAT ports
@@ -175,7 +176,7 @@ class ClassNAT:
             # in order to get these, you can use the function `get_socket_dst` in the server code
             return data  # `data` is in format of scapy packet
 
-        print("invalid connection")
+        # print("invalid connection")
         return None
 
     def cleanup_nat_table(self):
