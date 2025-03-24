@@ -109,7 +109,7 @@ class VPNClient:
             prn=lambda p: self._send_to_vpn(p),
             lfilter=self._scapy_filter,
             iface=self.virtual_adapter_name,
-            stop_filter=lambda: not self.active
+            stop_filter=lambda p: not self.active
         )
         print("Stopped sniffing virtual adapter")
 
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     client = VPNClient(
         vpn_server_ip="10.0.0.22",
         virtual_adapter_ip="10.0.0.50",
-        virtual_adapter_name="wrgrd",
+        virtual_adapter_name="test_wrgrd",
         initial_vpn_port=5123,
         client_port=8800,
         private_ip="10.0.0.12"

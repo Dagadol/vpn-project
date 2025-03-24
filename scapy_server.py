@@ -14,12 +14,14 @@ class OpenServer:
 
         # if clients is None. create a value, and enter it the nat class
         # in order to make the nat.users_addr point at self.clients
-        if clients is None:
-            self.clients["1"] = "2"
+        #if clients is None:
+        #    self.clients["1"] = "2"
         self.nat = nat_class.ClassNAT(my_ip=server_ip, users=self.clients)
-        del clients["1"]
+        #del clients["1"]
 
-        self.keys = keys  # user_ip: key
+        self.keys = dict()
+        if keys is not None:
+            self.keys = keys  # user_ip: key
         self.skt = None
 
         self.t_recv = threading.Thread(target=self.internet_recv, daemon=True)
@@ -115,6 +117,9 @@ class OpenServer:
             print("sniffed stopped")
 
 
+lock = threading.Lock()
+
+
 def tcp_connection(client_ip, this_port, vpn: OpenServer):
     """
     the first connection between the client and this server, represented in tcp
@@ -123,12 +128,13 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer):
     :param this_port: tcp_port
     :param client_ip: client's private IP s
     """
-    with threading.Lock:
+    with lock:
         this_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         this_sock.bind(("0.0.0.0", this_port))  # Bind to all interfaces on `this_port`
         this_sock.listen(1)  # Listen with a backlog of 1 (see below)
 
         while True:
+            print("waiting for connection")
             conn, addr = this_sock.accept()
             print("Connection from", addr)
             if addr[0] != client_ip:
@@ -145,6 +151,8 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer):
             data = connect_protocol.create_msg(str(vpn.udp_port), "f_conn", shared_key)  # f stands for first
             conn.send(data)
 
+            # Add user
+
             if not vpn.conn:  # activate the thread of vpn if it is not already activated
                 vpn.open_conn()
                 print("connection opened")
@@ -157,9 +165,12 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer):
 
 
 if __name__ == '__main__':
+    clients = dict()
+    clients["10.0.0.50"] = ("10.0.0.12", 8800)
     server = OpenServer(
         server_ip="10.0.0.22",
-        server_port=8888
+        server_port=8888,
+        clients=clients
     )
     tcp_connection(
         client_ip="10.0.0.12",
@@ -174,3 +185,4 @@ if __name__ == '__main__':
             threading.Event().wait(1)
     except KeyboardInterrupt:
         server.close_conn()
+
