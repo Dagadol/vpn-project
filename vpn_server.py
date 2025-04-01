@@ -1,4 +1,4 @@
-from collections import deque
+from collections import defaultdict, deque
 import threading
 import socket
 import random
@@ -16,7 +16,7 @@ udp_port = 5123  # could be tcp port for aes key, then in there receive the udp 
 ADDRESSES = tuple(("10.2.0.1", "10.2.0.2"))  # unchangeable value
 available = list(reversed(ADDRESSES))
 clients = dict()  # v_addr: client_id
-requests_cmd = dict()  # command waiting list
+requests_cmd = defaultdict()  # command waiting list
 # keys = dict()  # client_ip: key
 on = True
 vpn = OpenServer(server_ip, udp_port)
