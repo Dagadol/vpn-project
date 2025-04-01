@@ -7,8 +7,8 @@ import hashlib
 # const values
 BASE = 2  # hd base
 FIXED_LEN = 4
-command_list = ["connect", "dconnect", "change", "shutdown", "connect_0", "connect_1", "change_0", "change_1", "error",
-                "exchange", "f_conn", "test"]
+command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
+                "exchange", "f_conn", "test", "vpn_in"]
 
 
 def create_msg(data: str, cmd: str, key=None) -> bytes | None:
