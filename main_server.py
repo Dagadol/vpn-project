@@ -158,5 +158,6 @@ def listen_for_clients():
 
 
 if __name__ == '__main__':
+    # todo: add threads beneath. and apply what need so it will work with the threads in `vpn_server.py`
     listen_for_servers()
     listen_for_clients()
