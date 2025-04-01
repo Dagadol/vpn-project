@@ -13,6 +13,7 @@ current_private_ip = None
 main_server_addr = ("10.0.0.20", 5500)
 
 avail_commands = """
+invalid command!
 Connect: connect to best vpn server
 Disconnect: disconnect from current vpn server
 Change: change vpn server
