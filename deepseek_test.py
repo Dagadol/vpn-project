@@ -22,7 +22,10 @@ Else: show list of commands
 
 
 def handle_exit(skt):
-    handle_disconnect(skt, "shutdown")
+    if not handle_disconnect(skt, "exit"):
+        # Notify server
+        skt.send(connect_protocol.create_msg("i want to leave", "exit"))
+
     return True
 
 
@@ -80,12 +83,12 @@ def handle_disconnect(skt, cmd: str = "dconnect"):
     global vpn_client, v_interface, current_client_port, current_private_ip
 
     if not vpn_client:
-        print("Not connected")
-        return True
+        print("Already disconnected")
+        return False
 
     # Notify server
     skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{v_interface.ip}", cmd
+        f"{vpn_client.vpn_ip}~{v_interface.ip}", cmd  # data "important" for the server
     ))
 
     # Clean up client
@@ -111,7 +114,7 @@ def handle_change(skt):
 
     # Request server change
     skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{v_interface.ip}", "change"
+        f"{vpn_client.vpn_ip}~{vpn_client.vpn_ip}~{v_interface.ip}", "change"
     ))
     cmd, msg = connect_protocol.get_msg(skt)
 
