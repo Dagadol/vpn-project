@@ -130,7 +130,7 @@ class VPNClient:
                 decrypted = connect_protocol.decrypt(encrypted, self.key)
                 pkt = IP(decrypted)
                 send(pkt, verbose=0)
-                print(f"Injected packet: {pkt.summary()}")
+                print(f"Self injected packet: {pkt.summary()}")
 
             except (socket.timeout, ValueError):
                 continue
