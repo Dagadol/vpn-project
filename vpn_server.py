@@ -1,11 +1,13 @@
-import socket
+from collections import deque
 import threading
+import socket
 import random
-import connect_protocol
-from scapy_server import OpenServer, tcp_connection
 import atexit
 import psutil  # used for calculating load
 import time
+from scapy_server import OpenServer, tcp_connection
+import connect_protocol
+
 
 server_ip = "10.0.0.20"
 server_port = 8888
@@ -143,46 +145,31 @@ def handle_shutdown(skt):
 def listen_for_commands(skt):
     global requests_cmd
     while on:
-        cmd, msg = connect_protocol.get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
+        cmd, msg = connect_protocol.get_msg(skt)
         thread = int(msg.split('~')[0])
 
-        if thread in requests_cmd:  # if thread is in dict already, then there's a tuple in place of thread
-            # turn values into a queue in instance of list, meaning list of tuples
-            values = list(requests_cmd[thread])
-            values.append((cmd, msg))
-            requests_cmd[thread] = values
+        if thread in requests_cmd:
+            requests_cmd[thread].append((cmd, msg))  # No need to convert list
         else:
-            requests_cmd[thread] = (cmd, msg)
+            requests_cmd[thread] = deque([(cmd, msg)])  # Use deque instead of list
 
 
 def get_command():
     global requests_cmd
     this_thread = threading.get_native_id()
-
-    # check if thread was given a command
-    got_msg = this_thread in requests_cmd
     start = time.time()
-    # give 5 seconds for command
-    while time.time() - start < 5 and not got_msg:
-        got_msg = this_thread in requests_cmd
-    if not got_msg:  # if did not find return None
-        return "break", None
 
-    value = requests_cmd[this_thread]
-    if isinstance(value, list):
-        if len(value) == 1:
-            cmd, msg = value[0]  # case: value is a list of one tuple
-            del requests_cmd[this_thread]
-            return cmd, msg
-        else:
-            (cmd, msg) = value[0]  # case: value is a list of multiple tuples
-            value.remove((cmd, msg))  # remove first index, of value. if didn't work then try requests_cmd[this_thread]
-            return cmd, msg
-    else:
-        # case: value is a tuple
-        del requests_cmd[this_thread]
-        cmd, msg = value
-        return cmd, msg
+    while time.time() - start < 5:
+        if this_thread in requests_cmd:
+            queue = requests_cmd[this_thread]
+            if queue:
+                cmd, msg = queue.popleft()  # Remove oldest message efficiently
+                if not queue:
+                    del requests_cmd[this_thread]  # Cleanup if empty
+                return cmd, msg
+        time.sleep(0.01)  # Prevent busy waiting
+
+    return "break", None  # Timeout case
 
 
 def handle_server(my_socket):  # todo: add thread distribution
