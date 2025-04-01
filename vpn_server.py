@@ -33,11 +33,12 @@ def handle_checkup(my_socket):
 
     space_left = len(available) + 1
     load = psutil.cpu_percent()
-    data = f"{space_left}~{load}"
+    this_thread = threading.get_native_id()
+    data = f"{space_left}~{load}~id:{this_thread}"  # add thread id to the end of data
 
     # send data ASAP
     my_socket.send(connect_protocol.create_msg(data=data, cmd="checkup"))
-    cmd, msg = connect_protocol.get_msg(my_socket)
+    cmd, msg = get_thread_data(this_thread)
 
     if cmd == "checkup0":  # server rejection
         available.append(v_addr)  # restore available IPs
@@ -56,50 +57,12 @@ def handle_checkup(my_socket):
         vpn.clients[v_addr] = (client_ip, client_port)
         vpn.update_addr()
 
-        threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn], daemon=True).start()  # set to daemon
+        threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn]).start()
         return True
     else:  # should never get here
         available.append(v_addr)
         print("checkup problem:", cmd, "\t", msg)
         return False
-
-
-"""def handle_checkup2(my_socket):
-    tcp_port = random.randint(udp_port + 1, 6000)
-    space_left = len(available)  # space for new users
-
-    data = f"{tcp_port}~{space_left}"  # send the tcp_port, then, if checkup1 send the udp_port
-    v_ip = ""  # v stands for virtual. virtual IP given by this server
-
-    if available:  # there are available IPs
-        v_ip = available[-1]  # get the last IP from the available list
-        data = f"{data}~{v_ip}"
-    else:
-        data = data + "~0"  # at the end, data will be formatted: tcp_port~space_left~v_ip
-
-    my_socket.send(connect_protocol.create_msg(data, f"checkup"))
-    cmd, msg = connect_protocol.get_msg(my_socket)
-
-    # checkup0 meaning server doesn't want to assign the user to this vpn server
-    if cmd == "checkup0":
-        return False
-    elif cmd == "checkup1" and v_ip:  # checkup1 server assign the user to this vpn server
-        del available[-1]
-        client_ip, client_port = msg.split("~")
-
-        # add new client
-        vpn.clients[v_ip] = (client_ip, client_port)
-        vpn.update_addr()
-
-        # vpn server is always on, therefore we don't need to start the thread of it.
-        # although I would start a thread for the tcp connection between the client and this server
-        threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn], daemon=True).start()  # set to daemon
-        return True
-
-    else:  # shouldn't get here
-        print("checkup problem:", cmd, data)
-        return False
-"""
 
 
 def handle_remove(skt, v_addr):
@@ -145,8 +108,14 @@ def handle_shutdown(skt):
 def listen_for_commands(skt):
     global requests_cmd
     while on:
-        cmd, msg = connect_protocol.get_msg(skt)
-        thread = int(msg.split('~')[0])
+        cmd, msg = connect_protocol.get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
+        thread_msg = msg.split('~')[0]  # id:thread_id~data~id:thread_id
+
+        if "id:" in thread_msg:
+            thread = int(thread_msg.split("id:")[1])
+
+        else:  # sent to main thread
+            thread = -1
 
         if thread in requests_cmd:
             requests_cmd[thread].append((cmd, msg))  # No need to convert list
@@ -154,9 +123,16 @@ def listen_for_commands(skt):
             requests_cmd[thread] = deque([(cmd, msg)])  # Use deque instead of list
 
 
-def get_command():
+def get_thread_data(this_thread: int = -1):
+    """
+    using thread id to get the relevant msg received by the socket.
+
+    :param this_thread: if empty, this_thread set to -1. representing the Main thread.
+    otherwise it will present the thread given.
+    :return cmd: command got from socket. through connect protocol. "break" in case empty queue (timeout)
+    :return msg: message got from socket, using connect protocol.
+    """
     global requests_cmd
-    this_thread = threading.get_native_id()
     start = time.time()
 
     while time.time() - start < 5:
@@ -174,12 +150,12 @@ def get_command():
 
 def handle_server(my_socket):  # todo: add thread distribution
     while on:
-        cmd, msg = connect_protocol.get_msg(my_socket)
+        cmd, msg = get_thread_data()
         if cmd == "checkup":
-            threading.Thread(target=handle_checkup, args=[my_socket], daemon=True).start()
+            threading.Thread(target=handle_checkup, args=[my_socket]).start()
         if cmd == "remove":
-            threading.Thread(target=handle_remove, args=[my_socket, msg], daemon=True).start()
-        if cmd == "break":
+            threading.Thread(target=handle_remove, args=[my_socket, msg]).start()
+        if cmd == "break":  # no msg was incoming
             continue
 
 
@@ -189,9 +165,11 @@ def main():
 
     my_socket.connect((server_ip, server_port))
 
-    # let the Main server know the max users available
-    max_users = str(len(ADDRESSES))
-    my_socket.send(connect_protocol.create_msg(max_users, "vpn_in"))
+    # good place to apply RSA encryption to exchange keys
+    # let the server know about the Main thread ID
+    # my_socket.send(connect_protocol.create_msg(), "vpn_in"))
+
+    threading.Thread(target=listen_for_commands, args=[my_socket]).start()
 
     handle_server(my_socket)
 
