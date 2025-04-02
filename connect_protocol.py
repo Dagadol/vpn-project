@@ -1,14 +1,56 @@
+from collections import deque, defaultdict
+
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import random
 import sympy
 import os
 import hashlib
+import time
 
 # const values
 BASE = 2  # hd base
 FIXED_LEN = 4
 command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
                 "exchange", "f_conn", "test", "vpn_in"]
+
+
+class CommandHandler:
+    def __init__(self):
+        self.requests_cmd = defaultdict(deque)
+        self.on = True
+
+    def listen_for_commands(self, skt):
+        while self.on:
+            cmd, msg = get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
+            thread_msg = msg.split('~')[0]  # id:thread_id~data~id:thread_id
+
+            if "to_id:" in thread_msg:
+                thread = int(thread_msg.split("id:")[1])  # id: in to_whom_thread
+            else:
+                thread = -1
+
+            if thread in self.requests_cmd:
+                self.requests_cmd[thread, skt].append((cmd, msg))
+            else:
+                self.requests_cmd[thread, skt] = deque([(cmd, msg)])
+
+    def get_thread_data(self, skt, this_thread: int = -1):
+        start = time.time()
+
+        while time.time() - start < 5:
+            if (this_thread, skt) in self.requests_cmd:
+                queue = self.requests_cmd[this_thread, skt]
+                if queue:
+                    cmd, msg = queue.popleft()
+                    if not queue:
+                        del self.requests_cmd[this_thread, skt]
+                    return cmd, msg
+            time.sleep(0.01)
+
+        return "break", None
+
+    def turn_off(self):
+        self.on = False
 
 
 def create_msg(data: str, cmd: str, key=None) -> bytes | None:
