@@ -1,186 +1,120 @@
-import random
-import subprocess
+from collections import deque, defaultdict
+import time
 import socket
-import connect_protocol
-from adapter_conf import Adapter
-from scapy_client import VPNClient
-
-# Global state
-vpn_client = None
-v_interface = None
-current_client_port = None
-current_private_ip = None
-main_server_addr = ("10.0.0.20", 5500)
-
-avail_commands = """
-Connect: connect to best vpn server
-Disconnect: disconnect from current vpn server
-Change: change vpn server
-Exit: shutdown application
-Else: show list of commands
-"""
+import struct
 
 
-def handle_exit(skt):
-    if not handle_disconnect(skt, "exit"):
-        # Notify server
-        skt.send(connect_protocol.create_msg("i want to leave", "exit"))
+class ClassNAT:
+    def __init__(self, my_ip, max_user_conn=1000):
+        self.vpn_ip = my_ip
+        self.port_pool = deque(range(32768, 60999))  # Expanded port range
+        self.nat_table = {}  # Format: {(src_ip, src_port, proto, dst_ip, dst_port): (public_port, last_active)}
+        self.user_conn_count = defaultdict(int)  # Track connections per user
+        self.max_user_conn = max_user_conn
 
-    return True
+    def udp_recv(self, data: bytes, client_addr: tuple) -> bytes | None:
+        """Process incoming UDP packet from client"""
+        # Parse inner IP packet (assuming data = encapsulated IP packet)
+        try:
+            inner_ip = data[:20]
+            src_ip = socket.inet_ntoa(inner_ip[12:16])
+            dst_ip = socket.inet_ntoa(inner_ip[16:20])
+            proto = inner_ip[9]
+            src_port, dst_port = self._parse_transport_header(data[20:], proto)
+        except Exception as e:
+            print(f"Failed to parse packet: {e}")
+            return None
 
+        # Validate client
+        if client_addr[0] != src_ip:
+            print(f"Spoof attempt: {client_addr[0]} != {src_ip}")
+            return None
 
-def handle_connect(skt):
-    global vpn_client, v_interface, current_client_port, current_private_ip
+        # Check per-user connection limit
+        if self.user_conn_count[src_ip] >= self.max_user_conn:
+            print(f"Blocked {src_ip}: connection limit reached")
+            return None
 
-    if vpn_client:
-        print("Already connected")
-        return False
+        # Create 5-tuple key
+        key = (src_ip, src_port, proto, dst_ip, dst_port)
 
-    # Generate client port
-    port = random.randint(50600, 54000)
-    while port in subprocess.run("netstat -n", capture_output=True, text=True, shell=True).stdout:
-        port = random.randint(50600, 54000)
+        # Get or assign NAT port
+        if key in self.nat_table:
+            public_port, _ = self.nat_table[key]
+            self.nat_table[key] = (public_port, time.time())  # Update timestamp
+        else:
+            if not self.port_pool:
+                print("NAT port exhaustion!")
+                return None
+            public_port = self.port_pool.popleft()
+            self.nat_table[key] = (public_port, time.time())
+            self.user_conn_count[src_ip] += 1
 
-    skt.send(connect_protocol.create_msg(str(port), "connect"))
-    cmd, msg = connect_protocol.get_msg(skt)
+        # Rewrite IP/port headers
+        new_packet = self._rewrite_packet(data, src_ip, src_port, public_port)
+        return new_packet
 
-    if cmd == "connect_0":
-        print("Connection refused:", msg)
-        return False
-    if cmd != "connect_1":
-        print("Protocol error:", cmd, msg)
-        return False
+    def internet_recv(self, data: bytes) -> tuple[bytes, tuple] | None:
+        """Process incoming internet packet"""
+        # Parse headers
+        try:
+            dst_ip = socket.inet_ntoa(data[16:20])
+            dst_port = struct.unpack('!H', data[22:24])[0]
+            proto = data[9]
+        except Exception as e:
+            print(f"Invalid packet: {e}")
+            return None
 
-    # Parse server response
-    vpn_ip, vpn_port, vm_ip, my_ip = msg.split("~")
+        # Find original client using NAT port
+        key = next((k for k, v in self.nat_table.items() if v[0] == dst_port), None)
+        if not key:
+            return None
 
-    try:
-        # Create virtual adapter
-        v_interface = Adapter(vm_ip)
-        current_client_port = port
-        current_private_ip = my_ip
+        src_ip, src_port, _, dst_ip, dst_port = key
+        self.nat_table[key] = (dst_port, time.time())  # Update timestamp
 
-        # Create and start VPN client
-        vpn_client = VPNClient(
-            vpn_server_ip=vpn_ip,
-            virtual_adapter_ip=vm_ip,
-            virtual_adapter_name=v_interface.name(),
-            initial_vpn_port=int(vpn_port),
-            client_port=current_client_port,
-            private_ip=current_private_ip
-        )
-        vpn_client.open_connection()
-        return True
-    except Exception as e:
-        print("Connection failed:", e)
-        if v_interface:
-            v_interface.delete_adapter()
-            v_interface = None
-        return False
+        # Rewrite packet for client
+        new_packet = self._rewrite_packet(data, dst_ip, dst_port, src_port)
+        return new_packet, (src_ip, src_port)
 
+    def _parse_transport_header(self, data: bytes, proto: int) -> tuple[int, int]:
+        """Extract src/dst ports from transport header"""
+        if proto == 6:  # TCP
+            src_port, dst_port = struct.unpack('!HH', data[:4])
+        elif proto == 17:  # UDP
+            src_port, dst_port = struct.unpack('!HH', data[:4])
+        else:
+            raise ValueError(f"Unsupported protocol {proto}")
+        return src_port, dst_port
 
-def handle_disconnect(skt, cmd: str = "dconnect"):
-    global vpn_client, v_interface, current_client_port, current_private_ip
+    def _rewrite_packet(self, data: bytes, old_ip: str, old_port: int, new_port: int) -> bytes:
+        """Rewrite IP/port and update checksums"""
+        # Rewrite IP header (source/dest IP)
+        new_ip_header = bytearray(data[:20])
+        new_ip_header[12:16] = socket.inet_aton(self.vpn_ip)  # Set source IP
 
-    if not vpn_client:
-        print("Already disconnected")
-        return False
+        # Rewrite transport header port
+        new_transport = bytearray(data[20:])
+        new_transport[0:2] = struct.pack('!H', new_port)
 
-    # Notify server
-    skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{v_interface.ip}", cmd  # data "important" for the server
-    ))
+        # Recalculate checksums (implement manual calculation here)
+        full_packet = bytes(new_ip_header) + bytes(new_transport)
+        return full_packet
 
-    # Clean up client
-    vpn_client.end_connection()
-    vpn_client = None
+    def cleanup_nat_table(self):
+        """Remove stale entries (TCP: 60s, UDP: 30s)"""
+        while True:
+            time.sleep(30)
+            now = time.time()
+            to_delete = []
+            for key, (port, last_active) in self.nat_table.items():
+                proto = key[2]
+                timeout = 60 if proto == 6 else 30
+                if now - last_active > timeout:
+                    to_delete.append(key)
 
-    # Remove adapter
-    v_interface.delete_adapter()
-    v_interface = None
-
-    current_client_port = None
-    current_private_ip = None
-    print("Disconnected successfully")
-    return True
-
-
-def handle_change(skt):
-    global vpn_client, v_interface
-
-    if not vpn_client:
-        print("Not connected")
-        return False
-
-    # Request server change
-    skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{vpn_client.vpn_ip}~{v_interface.ip}", "change"
-    ))
-    cmd, msg = connect_protocol.get_msg(skt)
-
-    if cmd == "change_0":
-        print("Change failed:", msg)
-        return False
-    if cmd != "change_1":
-        print("Protocol error:", cmd, msg)
-        return False
-
-    # Parse new server details
-    new_vpn_ip, new_vpn_port, new_vm_ip = msg.split("~")
-
-    try:
-        # Update virtual adapter
-        v_interface.update_ip(new_vm_ip)
-
-        # Create new VPN client
-        new_client = VPNClient(
-            vpn_server_ip=new_vpn_ip,
-            virtual_adapter_ip=new_vm_ip,
-            virtual_adapter_name=v_interface.name(),
-            initial_vpn_port=int(new_vpn_port),
-            client_port=current_client_port,
-            private_ip=current_private_ip
-        )
-
-        # Replace old connection
-        vpn_client.end_connection()
-        vpn_client = new_client
-        vpn_client.open_connection()
-        return True
-    except Exception as e:
-        print("Server change failed:", e)
-        return False
-
-
-def wait_for_command(skt):
-    commands = {
-        "connect": handle_connect,
-        "disconnect": handle_disconnect,
-        "change": handle_change,
-        "exit": handle_exit
-    }
-
-    while True:
-        command = input("Enter command: ").lower()
-        if command not in commands:
-            print(avail_commands)
-            continue
-
-        if command == "exit":
-            commands[command](skt)
-            break
-
-        success = commands[command](skt)
-        print("Success" if success else "Failed")
-
-
-def main():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
-        skt.connect(main_server_addr)
-        print("Connected to main server")
-        wait_for_command(skt)
-    print("Connection closed")
-
-
-if __name__ == '__main__':
-    main()
+            for key in to_delete:
+                port = self.nat_table[key][0]
+                self.port_pool.append(port)
+                del self.nat_table[key]
+                self.user_conn_count[key[0]] -= 1
