@@ -1,6 +1,9 @@
 import random
 import subprocess
 import socket
+import threading
+import time
+
 import connect_protocol
 from adapter_conf import Adapter
 from scapy_client import VPNClient
@@ -11,6 +14,7 @@ v_interface = None
 current_client_port = None
 current_private_ip = None
 main_server_addr = ("10.0.0.20", 5500)
+key = None
 
 avail_commands = """
 invalid command!
@@ -43,7 +47,7 @@ def handle_connect(skt):
         port = random.randint(50600, 54000)
 
     skt.send(connect_protocol.create_msg(str(port), "connect"))
-    cmd, msg = connect_protocol.get_msg(skt)
+    cmd, msg = client_handler.get_thread_data(skt)
 
     if cmd == "connect_0":
         print("Connection refused:", msg)
@@ -117,7 +121,7 @@ def handle_change(skt):
     skt.send(connect_protocol.create_msg(
         f"{vpn_client.vpn_ip}~{vpn_client.vpn_ip}~{v_interface.ip}", "change"
     ))
-    cmd, msg = connect_protocol.get_msg(skt)
+    cmd, msg = client_handler.get_thread_data(skt)
 
     if cmd == "change_0":
         print("Change failed:", msg)
@@ -153,6 +157,19 @@ def handle_change(skt):
         return False
 
 
+def server_connection(skt):  # TODO: exchange keys in this function
+    global key
+    # first connection:
+
+    skt.send(connect_protocol.create_msg(f"from_id:{threading.get_native_id()}", "f_conn"))
+    # first connection has was closed
+    while True:
+        cmd, msg = client_handler.get_thread_data(skt, threading.get_native_id())
+        if cmd == "shutdown":
+            msg = split()
+            print(msg)
+
+
 def wait_for_command(skt):
     commands = {
         "connect": handle_connect,
@@ -175,11 +192,27 @@ def wait_for_command(skt):
         print("Success" if success else "Failed")
 
 
+client_handler = connect_protocol.CommandHandler()
+
+
 def main():
+    global key
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
         skt.connect(main_server_addr)
         print("Connected to main server")
-        wait_for_command(skt)
+
+        t_wait = threading.Thread(target=server_connection, args=[skt])
+        t_wait.start()
+
+        while not key:
+            time.sleep(0.1)
+
+        threading.Thread(target=client_handler.listen_for_commands, args=[skt]).start()
+        threading.Thread(target=wait_for_command, args=[skt]).run()
+        t_wait.join()
+        # wait_for_command(skt)
+
+    client_handler.turn_off()
     print("Connection closed")
 
 
