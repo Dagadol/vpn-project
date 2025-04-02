@@ -1,10 +1,8 @@
-from collections import defaultdict, deque
 import threading
 import socket
 import random
 import atexit
 import psutil  # used for calculating load
-import time
 from scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
@@ -16,15 +14,18 @@ udp_port = 5123  # could be tcp port for aes key, then in there receive the udp 
 ADDRESSES = tuple(("10.2.0.1", "10.2.0.2"))  # unchangeable value
 available = list(reversed(ADDRESSES))
 clients = dict()  # v_addr: client_id
-requests_cmd = defaultdict()  # command waiting list
+handler = connect_protocol.CommandHandler()  # command waiting list
 # keys = dict()  # client_ip: key
-on = True
 vpn = OpenServer(server_ip, udp_port)
+on = True
 
 
-def handle_checkup(my_socket):
+def handle_checkup(my_socket, msg):
+    thread_part = msg.split("~")[1]  # f"from_id:{num}"
+    thread_part = f"to_{thread_part.split("_")[1]}"  # f"to_id:{num}"
+
     if not available:  # no space left
-        my_socket.send("invalid space", "checkup0")
+        my_socket.send(connect_protocol.create_msg(f"{thread_part}~invalid space", "checkup0"))
         return False
 
     # remove the space before you take space_left
@@ -34,11 +35,12 @@ def handle_checkup(my_socket):
     space_left = len(available) + 1
     load = psutil.cpu_percent()
     this_thread = threading.get_native_id()
-    data = f"{space_left}~{load}~id:{this_thread}"  # add thread id to the end of data
+    data = f"{thread_part}~{space_left}~{load}~from_id:{this_thread}"  # add thread id to the end of data
 
     # send data ASAP
     my_socket.send(connect_protocol.create_msg(data=data, cmd="checkup"))
-    cmd, msg = get_thread_data(this_thread)
+    # get data back
+    cmd, msg = handler.get_thread_data(my_socket, this_thread)
 
     if cmd == "checkup0":  # server rejection
         available.append(v_addr)  # restore available IPs
@@ -50,7 +52,7 @@ def handle_checkup(my_socket):
         # set tcp_port
         tcp_port = random.randint(udp_port + 1, 6000)
 
-        data = f"{tcp_port}~{v_addr}"
+        data = f"{thread_part}~{tcp_port}~{v_addr}"
         my_socket.send(connect_protocol.create_msg(data, "checkup"))
 
         # add new client
@@ -65,10 +67,13 @@ def handle_checkup(my_socket):
         return False
 
 
-def handle_remove(skt, v_addr):
+def handle_remove(skt, msg):
     global available
+    v_addr, thread_msg = msg.split("~")
+    thread_msg = f"to_{thread_msg.split("_")[1]}"
+
     if v_addr not in vpn.clients:
-        skt.send(connect_protocol.create_msg("user does not exit", "error"))
+        skt.send(connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
     ip = vpn.clients[v_addr][0]  # client's ip
 
     # remove user's data
@@ -80,7 +85,7 @@ def handle_remove(skt, v_addr):
     available.append(v_addr)
 
     # ack
-    skt.send(connect_protocol.create_msg("user has been removed", "remove"))
+    skt.send(connect_protocol.create_msg(f"{thread_msg}~the user has been removed", "remove"))
 
     if not vpn.clients:  # close connection if needed (case no clients)
         vpn.close_conn()
@@ -93,8 +98,10 @@ def handle_shutdown(skt):
     :param skt:
     """
     global on
+    on = False
     print("bye world")
-    on = False  # set server closed
+    handler.turn_off()  # set server closed
+    vpn.close_conn()
 
     str_clients = ""
     for v_addr in clients:
@@ -105,55 +112,12 @@ def handle_shutdown(skt):
     skt.close()
 
 
-def listen_for_commands(skt):
-    global requests_cmd
+def handle_server(my_socket):
     while on:
-        cmd, msg = connect_protocol.get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
-        thread_msg = msg.split('~')[0]  # id:thread_id~data~id:thread_id
-
-        if "id:" in thread_msg:
-            thread = int(thread_msg.split("id:")[1])
-
-        else:  # sent to main thread
-            thread = -1
-
-        if thread in requests_cmd:
-            requests_cmd[thread].append((cmd, msg))  # No need to convert list
-        else:
-            requests_cmd[thread] = deque([(cmd, msg)])  # Use deque instead of list
-
-
-def get_thread_data(this_thread: int = -1):
-    """
-    using thread id to get the relevant msg received by the socket.
-
-    :param this_thread: if empty, this_thread set to -1. representing the Main thread.
-    otherwise it will present the thread given.
-    :return cmd: command got from socket. through connect protocol. "break" in case empty queue (timeout)
-    :return msg: message got from socket, using connect protocol.
-    """
-    global requests_cmd
-    start = time.time()
-
-    while time.time() - start < 5:
-        if this_thread in requests_cmd:
-            queue = requests_cmd[this_thread]
-            if queue:
-                cmd, msg = queue.popleft()  # Remove oldest message efficiently
-                if not queue:
-                    del requests_cmd[this_thread]  # Cleanup if empty
-                return cmd, msg
-        time.sleep(0.01)  # Prevent busy waiting
-
-    return "break", None  # Timeout case
-
-
-def handle_server(my_socket):  # todo: add thread distribution
-    while on:
-        cmd, msg = get_thread_data()
+        cmd, msg = handler.get_thread_data(my_socket)
         print("msg:", msg)
         if cmd == "checkup":
-            threading.Thread(target=handle_checkup, args=[my_socket]).start()
+            threading.Thread(target=handle_checkup, args=[my_socket, msg]).start()
         if cmd == "remove":
             threading.Thread(target=handle_remove, args=[my_socket, msg]).start()
         if cmd == "break":  # no msg was incoming
@@ -166,11 +130,12 @@ def main():
 
     my_socket.connect((server_ip, server_port))
 
+    # TODO: add encryptions here
     # good place to apply RSA encryption to exchange keys
     # let the server know about the Main thread ID
     # my_socket.send(connect_protocol.create_msg(), "vpn_in"))
 
-    threading.Thread(target=listen_for_commands, args=[my_socket]).start()
+    threading.Thread(target=handler.listen_for_commands, args=[my_socket]).start()
 
     handle_server(my_socket)
 

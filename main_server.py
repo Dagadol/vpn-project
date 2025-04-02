@@ -1,6 +1,5 @@
 import socket
 import threading
-from collections import deque, defaultdict
 
 import connect_protocol
 import time
@@ -11,7 +10,7 @@ port_for_vpn = 8888
 
 vpn_servers = dict()  # server IP: socket
 client_dict = dict()  # client ID: socket
-requests_cmd = defaultdict()  # command waiting list
+server_handler = connect_protocol.CommandHandler()  # command waiting list
 
 
 def get_fastest_vpn(exception: str = ""):
@@ -21,21 +20,26 @@ def get_fastest_vpn(exception: str = ""):
         if ip == exception:
             continue
 
+        this_thread = threading.get_native_id()  # get this thread id
+
         # Measure ping
         start_time = time.time()
-        vpn_servers[ip].send(connect_protocol.create_msg("request", "checkup"))
-        cmd, msg = connect_protocol.get_msg(vpn_servers[ip])
+        vpn_servers[ip].send(connect_protocol.create_msg(f"request~from_id:{this_thread}", "checkup"))
+        cmd, msg = server_handler.get_thread_data(vpn_servers[ip], this_thread)
         ping = time.time() - start_time  # Stop measuring
 
         if cmd != "checkup":
-            continue  # Invalid response, ignore this server
+            print("cmd:", cmd)
+            continue  # Invalid response\Server is full, ignore this server
 
-        # Parse response: tcp_port~space_left~v_ip~cpu_load
+        # Parse response: to_id:{num}~space_left~v_ip~cpu_load
         msg_parts = msg.split("~")
         if len(msg_parts) != 3:
             continue  # Malformed response
 
-        space_left, cpu_load, thread_id = msg_parts
+        _, space_left, cpu_load, thread_id = msg_parts  # thread_id = "from_id:{num}"
+        thread_id = f"to_{thread_id.split("_")[1]}"  # thread_id = "to_id:{num}"
+
         space_left = int(space_left)
         cpu_load = float(cpu_load)  # Assuming it's sent as a number (percentage, e.g., 30 for 30%)
 
@@ -74,7 +78,12 @@ def handle_connect(skt, addr, client_id, port):
     data = f"{addr}~{port}~{client_id}"
     vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
-    data = f"{server_ip}~{connect_protocol.get_msg(vpn_servers[server_ip])}~{addr}"  # vpn_ip~vpn_port~v_ip~client_ip
+    # Get VPN data while removing this thread id
+    cmd, serer_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
+    _, vpn_port, v_ip = serer_data.split("~")
+
+    # Craft data for client
+    data = f"{server_ip}~{vpn_port}~{v_ip}~{addr}"  # vpn_ip~vpn_port~v_ip~client_ip
     skt.send(connect_protocol.create_msg(data, "connect_1"))
 
 
@@ -96,11 +105,14 @@ def handle_change(skt, addr, client_id, msg):
 
 
 def disconnect_vpn_by_ip(server_ip, v_addr):
+    threading_msg = f"from_id:{threading.get_native_id()}"
     try:
         vpn_socket = vpn_servers[server_ip]  # need to check if server_ip is in for error
-        vpn_socket.send(connect_protocol.create_msg(v_addr, "remove"))  # let the vpn know the user has removed
 
-        cmd, msg = connect_protocol.get_msg(vpn_socket)
+        # let the vpn know the user has disconnect
+        vpn_socket.send(connect_protocol.create_msg(f"{v_addr}~{threading_msg}", "remove"))
+
+        cmd, msg = server_handler.get_thread_data(vpn_socket, threading.get_native_id())
         if cmd != "remove":
             print(msg)
 
@@ -120,69 +132,36 @@ def handle_client(skt, addr, client_id):
             skt.close()
             break
 
+        # threads here are unnecessary because client can only send one by one
         elif cmd == "dconnect":
             server_ip, v_addr = msg.split('~')  # msg should hold both server_ip and the v_addr of the user
+            # threading.Thread(target=disconnect_vpn_by_ip, args=[server_ip, v_addr]).start()
             disconnect_vpn_by_ip(server_ip, v_addr)
 
         elif cmd == "connect":
+            # threading.Thread(target=handle_client, args=[skt, addr[0], client_id, msg]).start()
             handle_connect(skt, addr[0], client_id, msg)
         elif cmd == "change":
+            # threading.Thread(target=handle_change, args=[skt, addr[0], client_id, msg])
             handle_change(skt, addr[0], client_id, msg)
 
 
-def listen_for_commands(skt):
-    global requests_cmd
-    while True:
-        cmd, msg = connect_protocol.get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
-        thread_msg = msg.split('~')[0]  # id:thread_id~data~id:thread_id
-
-        if "id:" in thread_msg:
-            thread = int(thread_msg.split("id:")[1])
-
-        else:  # sent to main thread
-            thread = -1
-
-        if thread in requests_cmd:
-            requests_cmd[thread].append((cmd, msg))  # No need to convert list
-        else:
-            requests_cmd[thread] = deque([(cmd, msg)])  # Use deque instead of list
-
-
-def get_thread_data(this_thread: int = -1):
-    """
-    using thread id to get the relevant msg received by the socket.
-
-    :param this_thread: if empty, this_thread set to -1. representing the Main thread.
-    otherwise it will present the thread given.
-    :return cmd: command got from socket. through connect protocol. "break" in case empty queue (timeout)
-    :return msg: message got from socket, using connect protocol.
-    """
-    global requests_cmd
-    start = time.time()
-
-    while time.time() - start < 5:
-        if this_thread in requests_cmd:
-            queue = requests_cmd[this_thread]
-            if queue:
-                cmd, msg = queue.popleft()  # Remove oldest message efficiently
-                if not queue:
-                    del requests_cmd[this_thread]  # Cleanup if empty
-                return cmd, msg
-        time.sleep(0.01)  # Prevent busy waiting
-
-    return "break", None  # Timeout case
-
-
 def handle_server_shutdown(msg):
-    pass
+    clients = msg.split("~")
+    for client in clients:
+        if client not in client_dict:
+            print("client ID error:", client)
+            continue
+        client_skt = client_dict[client][0]  # socket at first index
+        thread_msg = client_dict[client][1]  # to thread id at second index
+        client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed", "shutdown"))
 
 
-def wait_for_update():
+def wait_for_update(skt):
     while True:
-        cmd, msg = get_thread_data()
+        cmd, msg = server_handler.get_thread_data(skt)
         if cmd == "shutdown":
             handle_server_shutdown(msg)
-
 
 
 def listen_for_servers():
@@ -194,8 +173,10 @@ def listen_for_servers():
     while True:
         vpn_sock, addr = servers_socket.accept()
 
+        threading.Thread(target=server_handler.listen_for_commands, args=[vpn_sock]).start()
+
         vpn_servers[addr[0]] = vpn_sock  # save server
-        t = threading.Thread(target=wait_for_update)
+        t = threading.Thread(target=wait_for_update, args=[vpn_sock])
         t.start()
 
 
@@ -211,7 +192,15 @@ def listen_for_clients():
         client_socket, addr = clients_socket.accept()  # wait for user
 
         client_id = f"client {this_id}"  # make client ID in string
-        client_dict[client_id] = client_socket
+
+        cmd, msg = connect_protocol.get_msg(client_socket)
+        if cmd != "f_conn":
+            print("error")
+            continue
+
+        thread_msg = f"to_{msg.split("_")[1]}"
+
+        client_dict[client_id] = (client_socket, thread_msg)
 
         t = threading.Thread(target=handle_client, args=[client_socket, addr])
         t.start()
