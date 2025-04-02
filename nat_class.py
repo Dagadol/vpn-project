@@ -3,8 +3,6 @@ from collections import deque
 from scapy.layers.inet import IP, UDP, TCP
 import time
 
-from sympy.codegen.ast import continue_
-
 
 def update_checksum(bad_bytes: bytes) -> bytes:  # update checksum using scapy. maybe try with struct later
     # turn bytes to scapy structured
@@ -43,14 +41,18 @@ def tcp_udp(p):
 class ClassNAT:
     def __init__(self, my_ip, users=None):
         # if users:  # todo, i should be the one to assign IPs to the virtual adapters
+
         # set users allowed to connect to this server
         self.users_addr = users  # this is equal to users even if users is None, so self.users_addr will point to users
         if users is None:  # fixme, i dont really like this, because i want users_addr to point at user
-            self.users_addr = dict()  # dict of allowed users. (IP address: port socket)
+            self.users_addr = dict()  # dict of allowed users. (IP address: port socket) todo change to defaultdict(int)
         # else:
 
         self.vpn_ip = my_ip
         # Available NAT ports
+        # todo try optimize to use sockets and struct instead of scapy
+        # fixme port pool get exhausted early think about a new way to deal with it
+        # maybe less ports per user or more ports, or limit user port use. D
         self.port_pool = deque(range(50000, 50500))  # might want to validate that all these ports are available
         self.nat_table = []  # format: ((client.src, client.sport), public port, (client.dst, client.dport))
         self.nat_timeouts = {}  # Track last activity time
