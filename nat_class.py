@@ -3,6 +3,8 @@ from collections import deque
 from scapy.layers.inet import IP, UDP, TCP
 import time
 
+from sympy.codegen.ast import continue_
+
 
 def update_checksum(bad_bytes: bytes) -> bytes:  # update checksum using scapy. maybe try with struct later
     # turn bytes to scapy structured
@@ -84,14 +86,19 @@ class ClassNAT:
             if self.users_addr[packet_data.src] != addr:
                 print("spoof attack, from:", addr)
                 return None
+            try:
+                info_address = (packet_data.src, tcp_udp(packet_data).sport)
+            except AttributeError:
+                return None
 
-            info_address = (packet_data.src, tcp_udp(packet_data).sport)
             dict_table = {sublist[0]: i for i, sublist in enumerate(self.nat_table)}
             # dict_table format: `(client_vm.src, client.sport): index`
             # index - index of key in the `nat_table`.
             # (client.src, client.sport) is addr
             if info_address not in dict_table:
                 # fixme, only check if info_address match; need to check if dst match too, and update nat_table if not
+                # set port timeout
+                self.nat_timeouts[self.port_pool[0]] = time.time()
 
                 # append source info address, attach a unique public port, and add destination info
                 self.nat_table.append(
@@ -99,11 +106,13 @@ class ClassNAT:
                      self.port_pool.popleft(),
                      (packet_data[IP].dst, tcp_udp(packet_data).dport))
                 )
-
                 index = len(self.nat_table) - 1
             else:
                 print("*****"*10, "reusing connection")
                 index = dict_table[info_address]
+
+                # update port timeout
+                self.nat_timeouts[self.nat_table[index][1]] = time.time()
 
             # update sources
             packet_data[IP].src = self.vpn_ip
@@ -143,6 +152,9 @@ class ClassNAT:
 
         dict_table = {sublist[1]: i for i, sublist in enumerate(self.nat_table)}
         if public_port in dict_table:
+            # update port timeout
+            self.nat_timeouts[public_port] = time.time()
+
             index = dict_table[public_port]
 
             if self.nat_table[index][2] != (source_ip, source_port):
