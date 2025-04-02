@@ -44,7 +44,7 @@ def handle_checkup(my_socket):
         available.append(v_addr)  # restore available IPs
         return False
     elif cmd == "checkup1":  # server was assigned
-        client_ip, client_port, client_id = msg.split("~")
+        _, client_ip, client_port, client_id = msg.split("~")
         clients[v_addr] = client_id  # save client
 
         # set tcp_port
@@ -151,6 +151,7 @@ def get_thread_data(this_thread: int = -1):
 def handle_server(my_socket):  # todo: add thread distribution
     while on:
         cmd, msg = get_thread_data()
+        print("msg:", msg)
         if cmd == "checkup":
             threading.Thread(target=handle_checkup, args=[my_socket]).start()
         if cmd == "remove":
