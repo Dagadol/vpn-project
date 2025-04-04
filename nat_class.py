@@ -56,6 +56,7 @@ class ClassNAT:
         self.port_pool = deque(range(50000, 50500))  # might want to validate that all these ports are available
         self.nat_table = []  # format: ((client.src, client.sport), public port, (client.dst, client.dport))
         self.nat_timeouts = {}  # Track last activity time
+        self.cleanup = False
 
     def get_socket_dst(self, data=None, ip: str = "") -> None | tuple[str, int]:
         if ip in self.users_addr:
@@ -160,6 +161,13 @@ class ClassNAT:
             index = dict_table[public_port]
 
             if self.nat_table[index][2] != (source_ip, source_port):
+                # while it is true that dest port may match the public port, letting access the client without question
+                # might be dangerous and wrong. if this packet is legit, it means that the cleanup has cleaned up the
+                # port before the stream ended, and a solution for this might be needed.
+                # 1) letting the timeout time be larger than what it is now (60 seconds)
+                # 2) saving the ports that were lastly cleaned up and for more 60 seconds, if they get here, then they
+                # come back alive (to the nat_table) else they will be permanently deleted.
+                # 3) do solution (1) and raise the amount of the public ports, in port pool. the question is to how much
                 print("need to update nat_table; unmatch connection:", data)
                 return None
 
@@ -178,7 +186,6 @@ class ClassNAT:
 
             # might need to write a new packet instead of updating existing packet `data`
             """
-            # if i finished answering these problems.
             # try minimize the use of scapy, in order to achieve better performance
             """
 
@@ -195,10 +202,10 @@ class ClassNAT:
 
     def cleanup_nat_table(self):
         """Remove stale NAT entries"""
-        while True:
+        while self.cleanup:
             time.sleep(30)
             now = time.time()
-            stale = [port for port, t in self.nat_timeouts.items() if now - t > 300]
+            stale = [port for port, t in self.nat_timeouts.items() if now - t > 90]
             for port in stale:
                 del self.nat_timeouts[port]
                 self.port_pool.append(port)
