@@ -1,6 +1,8 @@
 import socket
 import hashlib
 import threading
+import time
+
 from scapy.all import sniff, send
 from scapy.layers.inet import IP
 
@@ -104,20 +106,32 @@ class VPNClient:
         return False
 
     def _receive_from_adapter(self):
-        """Sniff virtual adapter and forward to VPN"""
-        sniff(
-            prn=lambda p: self._send_to_vpn(p),
-            lfilter=self._scapy_filter,
-            iface=self.virtual_adapter_name,
-            stop_filter=lambda p: not self.active
-        )
-        print("Stopped sniffing virtual adapter")
+        """Sniff packets from the virtual adapter and forward them to the VPN."""
+        attempt = 0
+        while self.active:  # Continue as long as the VPN connection is active
+            try:
+                sniff(
+                    prn=lambda p: self._send_to_vpn(p),  # Function to process packets
+                    lfilter=self._scapy_filter,  # Packet filter, if any
+                    iface=self.virtual_adapter_name,  # Interface name (e.g., "wrgrd")
+                    stop_filter=lambda p: not self.active  # Stop when connection ends
+                )
+                print("Successfully started sniffing on the virtual adapter.")
+                break  # Exit the loop once sniffing starts successfully
+            except Exception as e:
+                attempt += 1
+                print(f"Attempt {attempt}: Failed to start sniffing - {e}")
+                time.sleep(1)  # Wait 1 second before retrying
+        else:
+            print("Stopped sniffing due to VPN connection termination.")
 
     def _receive_from_vpn(self):
         """Receive from VPN server and inject into virtual adapter"""
         while self.active:
             try:
+
                 data, addr = self.udp_socket.recvfrom(65535)
+                print("received data")
                 if addr[0] != self.vpn_ip:
                     continue
 
@@ -129,7 +143,8 @@ class VPNClient:
 
                 decrypted = connect_protocol.decrypt(encrypted, self.key)
                 pkt = IP(decrypted)
-                send(pkt, verbose=0)
+                print(f"received packet: {pkt}")
+                send(pkt, iface='Software Loopback Interface 1')
                 print(f"Self injected packet: {pkt.summary()}")
 
             except (socket.timeout, ValueError):
@@ -142,14 +157,21 @@ class VPNClient:
 
 
 if __name__ == '__main__':
+    #v_interface = adapter_conf.Adapter(ip="10.0.0.50", vpn_ip="10.0.0.21")
+    #print("name:", f"'{v_interface.name}'", "\tip:", v_interface.ip, "\nwait 15 seconds")
+    #print("wait 25")
+    #time.sleep(10)
+    #print("time is over")
     # Example usage
     client = VPNClient(
-        vpn_server_ip="10.0.0.22",
+        vpn_server_ip="10.0.0.21",
         virtual_adapter_ip="10.0.0.50",
-        virtual_adapter_name="test_wrgrd",
+        #virtual_adapter_ip=v_interface.ip,
+        virtual_adapter_name="wrgrd",
+        #virtual_adapter_name=v_interface.name,
         initial_vpn_port=5123,
         client_port=8800,
-        private_ip="10.0.0.12"
+        private_ip="10.0.0.15"
     )
 
     try:
@@ -159,3 +181,4 @@ if __name__ == '__main__':
             threading.Event().wait(1)
     except KeyboardInterrupt:
         client.end_connection()
+        #v_interface.delete_adapter()
