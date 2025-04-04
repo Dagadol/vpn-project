@@ -26,6 +26,7 @@ class OpenServer:
 
         self.t_recv = threading.Thread(target=self.internet_recv, daemon=True)
         self.t_send = threading.Thread(target=self.internet_send, daemon=True)
+        self.t_cleanup = threading.Thread(target=self.nat.cleanup_nat_table, daemon=True)
         self.udp_port = server_port
 
         self.conn = False
@@ -39,14 +40,21 @@ class OpenServer:
             self.skt = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.skt.bind(("0.0.0.0", self.udp_port))
 
+            # start threads
             self.t_recv.start()
             self.t_send.start()
+            self.nat.cleanup = True
+            self.t_cleanup.start()
 
     def close_conn(self):
         if self.conn:
             self.conn = False
+            # close threads
             self.t_recv.join()
             self.t_send.join()
+            self.nat.cleanup = False
+            self.t_cleanup.join()
+
             self.skt = None
             print("connection has closed")
 
@@ -165,12 +173,12 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer):
 
 
 if __name__ == '__main__':
-    clients = dict()
-    clients["10.0.0.50"] = ("10.0.0.12", 8800)
+    allowed_clients = dict()
+    allowed_clients["10.0.0.50"] = ("10.0.0.12", 8800)
     server = OpenServer(
         server_ip="10.0.0.22",
         server_port=8888,
-        clients=clients
+        clients=allowed_clients
     )
     tcp_connection(
         client_ip="10.0.0.12",
