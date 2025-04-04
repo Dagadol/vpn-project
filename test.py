@@ -1,5 +1,7 @@
 import subprocess
 import platform
+import time
+
 import psutil
 import socket
 import connect_protocol
@@ -115,7 +117,48 @@ def abc(a):
         print("3")
 
 
-b = "a"
+"""b = "a"
 t = threading.Thread(target=abc, args=[b])
 t.start()
-print(4)
+print(4)"""
+
+import adapter_conf
+v_interface = adapter_conf.Adapter(ip='10.0.0.50', vpn_ip='10.0.0.21')
+
+
+from scapy.arch.windows import get_windows_if_list
+
+interfaces = get_windows_if_list()
+name = v_interface.name
+
+for iface in interfaces:
+    print(iface)
+    if name in iface['name']:
+        print("here")
+
+
+print("started 15 wait")
+time.sleep(15)
+print("stopped waiting")
+
+import scapy_client
+
+client = scapy_client.VPNClient(
+        vpn_server_ip="10.0.0.21",
+        #virtual_adapter_ip="10.0.0.50",
+        virtual_adapter_ip=v_interface.ip,
+        #virtual_adapter_name="wrgrd",
+        virtual_adapter_name=v_interface.name,
+        initial_vpn_port=5123,
+        client_port=8800,
+        private_ip="10.0.0.15"
+    )
+
+try:
+    client.open_connection()
+    # Keep main thread alive while connection is active
+    while client.active:
+        threading.Event().wait(1)
+except KeyboardInterrupt:
+    client.end_connection()
+    v_interface.delete_adapter()
