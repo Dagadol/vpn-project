@@ -4,8 +4,8 @@ import socket
 import threading
 import time
 
+import adapter_conf
 import connect_protocol
-from adapter_conf import Adapter
 from scapy_client import VPNClient
 
 # Global state
@@ -14,6 +14,8 @@ v_interface = None
 current_client_port = None
 current_private_ip = None
 main_server_addr = ("10.0.0.20", 5500)
+adapter_conf.add_static_route(main_server_addr[0])  # create route exception
+
 key = None
 
 avail_commands = """
@@ -27,9 +29,12 @@ Else: show list of commands
 
 
 def handle_exit(skt):
-    if not handle_disconnect(skt, "exit"):
+    if not handle_disconnect(skt, "exit"):  # if disconnected
+
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "exit"))
+
+    adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
 
     return True
 
@@ -61,7 +66,8 @@ def handle_connect(skt):
 
     try:
         # Create virtual adapter
-        v_interface = Adapter(vm_ip)
+        v_interface = adapter_conf.Adapter(ip=vm_ip, vpn_ip=vpn_ip)
+
         current_client_port = port
         current_private_ip = my_ip
 
@@ -69,7 +75,7 @@ def handle_connect(skt):
         vpn_client = VPNClient(
             vpn_server_ip=vpn_ip,
             virtual_adapter_ip=vm_ip,
-            virtual_adapter_name=v_interface.name(),
+            virtual_adapter_name=v_interface.name,
             initial_vpn_port=int(vpn_port),
             client_port=current_client_port,
             private_ip=current_private_ip
@@ -135,13 +141,14 @@ def handle_change(skt):
 
     try:
         # Update virtual adapter
-        v_interface.update_ip(new_vm_ip)
+        v_interface.assign_ip(new_vm_ip)
+        v_interface.assign_new_vpn(new_vpn_ip)
 
         # Create new VPN client
         new_client = VPNClient(
             vpn_server_ip=new_vpn_ip,
             virtual_adapter_ip=new_vm_ip,
-            virtual_adapter_name=v_interface.name(),
+            virtual_adapter_name=v_interface.name,
             initial_vpn_port=int(new_vpn_port),
             client_port=current_client_port,
             private_ip=current_private_ip
@@ -186,6 +193,7 @@ def wait_for_command(skt):
 
         if command == "exit":
             commands[command](skt)
+
             break
 
         success = commands[command](skt)
