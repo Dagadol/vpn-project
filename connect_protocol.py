@@ -1,3 +1,4 @@
+import threading
 from collections import deque, defaultdict
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -19,8 +20,9 @@ class CommandHandler:
         self.requests_cmd = defaultdict(deque)
         self.on = True
 
-    def listen_for_commands(self, skt):
-        while self.on:
+    def listen_for_commands(self, skt, event: threading.Event | None = None):
+        """event is for local single thread/skt while `self.on` affect all the sockets"""
+        while self.on and not event.is_set():
             cmd, msg = get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
             thread_msg = msg.split('~')[0]  # id:thread_id~data~id:thread_id
 
