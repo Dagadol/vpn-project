@@ -128,18 +128,24 @@ v_interface = adapter_conf.Adapter(ip='10.0.0.50', vpn_ip='10.0.0.21')
 
 from scapy.arch.windows import get_windows_if_list
 
-interfaces = get_windows_if_list()
-name = v_interface.name
+# interfaces = get_windows_if_list()
+# name = v_interface.name
 
-for iface in interfaces:
-    print(iface)
+"""for iface in interfaces:
+    # print(iface)
     if name in iface['name']:
-        print("here")
+        print("here")"""
+"""
+try:
+    print("started 10 wait")
+    time.sleep(10)
+    print("stopped waiting")
+except KeyboardInterrupt:
+    v_interface.delete_adapter()
+    print("try to exit")
+    exit()"""
 
-
-print("started 15 wait")
-time.sleep(15)
-print("stopped waiting")
+print("did not exit")
 
 import scapy_client
 
