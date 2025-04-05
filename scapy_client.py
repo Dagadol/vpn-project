@@ -33,9 +33,18 @@ class VPNClient:
             try:
                 sock.connect((self.vpn_ip, self.vpn_port))
                 break
-            except Exception as e:
+            except KeyboardInterrupt:
+                print("key board interrupt during key exchange")
+                self.end_connection()
+                return None
+            except WindowsError as e:
                 print(f"Connection error: {e}")
                 continue
+            except Exception as e:
+                print(f"Error at key exchange: {e}")
+                return None
+            except BaseException as e:
+                print(f"base exception {e}")
 
         shared_key = connect_protocol.dh_get(sock)
         cmd, data = connect_protocol.get_msg(sock, shared_key)
@@ -52,12 +61,12 @@ class VPNClient:
 
     def open_connection(self):
         """Start VPN connection and begin processing threads"""
+        self.active = True
         self.key = self._first_connection()
         if not self.key:
             print("Failed to establish initial connection")
             return
 
-        self.active = True
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind((self.private_ip, self.my_port))
         self.udp_socket.settimeout(1)  # For cleaner shutdown
