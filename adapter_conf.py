@@ -173,10 +173,11 @@ class Adapter:
 
     def create_wireguard_adapter(self):
         """Creates a WireGuard virtual adapter with a minimal config."""
-        private_key = base64.b64encode(os.urandom(32)).decode('utf-8')
+        # private_key = base64.b64encode(os.urandom(32)).decode('utf-8')
+        # key should always be the same, so new profiles won't be created
         config_content = f"""
         [Interface]
-        PrivateKey = {private_key}
+        PrivateKey = uOrpz7IW4imxN/CSDfdyN97s4f7tJSF514PFZ9LBNXY=
         """
 
         file_name = f"{self.name}.conf"
