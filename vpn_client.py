@@ -7,6 +7,7 @@ import time
 import adapter_conf
 import connect_protocol
 from scapy_client import VPNClient
+import queue
 
 # Global state
 vpn_client = None
@@ -17,6 +18,7 @@ main_server_addr = ("10.0.0.20", 5500)
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
 key = None
+command_queue = queue.Queue()
 
 avail_commands = """
 invalid command!
@@ -26,6 +28,17 @@ Change: change vpn server
 Exit: shutdown application
 Else: show list of commands
 """
+
+
+def block_until_finished_task() -> None:
+    global command_queue
+
+    i = command_queue.unfinished_tasks
+    while True:
+        if command_queue.unfinished_tasks < i:
+            return None
+        i = command_queue.unfinished_tasks
+        time.sleep(0.01)
 
 
 def handle_exit(skt):
@@ -125,7 +138,7 @@ def handle_change(skt):
 
     # Request server change
     skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{vpn_client.vpn_ip}~{v_interface.ip}", "change"
+        f"{vpn_client.vpn_ip}~{vpn_client.my_port}~{v_interface.ip}", "change"
     ))
     cmd, msg = client_handler.get_thread_data(skt)
 
@@ -173,8 +186,29 @@ def server_connection(skt):  # TODO: exchange keys in this function
     while True:
         cmd, msg = client_handler.get_thread_data(skt, threading.get_native_id())
         if cmd == "shutdown":
-            msg = split()
-            print(msg)
+            thread, msg, ip = msg.split("~")
+            print(f"{msg}\tequal threads: {thread == thread.get_native_id()}")
+            if vpn_client:
+                if ip == vpn_client.vpn_server_ip:
+                    command_queue.put("change", skt)
+
+
+def handle_command_queue():
+    global command_queue
+    commands = {
+        "connect": handle_connect,
+        "disconnect": handle_disconnect,
+        "change": handle_change,
+        "exit": handle_exit
+    }
+    while True:
+        cmd, args = command_queue.get()
+        commands[cmd](args)
+        command_queue.task_done()
+        # block might be unnecessary
+        block_until_finished_task()
+        if cmd == "exit":
+            break
 
 
 def wait_for_command(skt):
@@ -192,12 +226,14 @@ def wait_for_command(skt):
             continue
 
         if command == "exit":
-            commands[command](skt)
-
+            # commands[command](skt)
+            command_queue.put(command, skt)
             break
-
+        """
         success = commands[command](skt)
         print("Success" if success else "Failed")
+        """
+        command_queue.put(command, skt)
 
 
 client_handler = connect_protocol.CommandHandler()
@@ -216,8 +252,12 @@ def main():
             time.sleep(0.1)
 
         threading.Thread(target=client_handler.listen_for_commands, args=[skt]).start()
+        t_command_handler = threading.Thread(target=handle_command_queue)  # maybe set as a daemon
+        t_command_handler.start()
+
         threading.Thread(target=wait_for_command, args=[skt]).run()
         t_wait.join()
+        client_handler.turn_off()
         # wait_for_command(skt)
 
     client_handler.turn_off()
