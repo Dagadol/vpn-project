@@ -1,5 +1,4 @@
 import os
-import base64
 import subprocess
 import time
 import netifaces
@@ -167,9 +166,15 @@ class Adapter:
 
         print("Configuring routing...")
         self.configure_routes()
-
-        time.sleep(10)
         print(f"Adapter '{self.name}' is up and running.")
+
+        try:
+            print("waiting 10 seconds for windows to notice")
+            time.sleep(10)
+        except KeyboardInterrupt:
+            print("keyboard Interrupt, closing adapter")
+            self.delete_adapter()
+            exit()
 
     def create_wireguard_adapter(self):
         """Creates a WireGuard virtual adapter with a minimal config."""
