@@ -9,7 +9,7 @@ client_port = 5500
 port_for_vpn = 8888
 
 vpn_servers = dict()  # server IP: socket
-client_dict = dict()  # client ID: socket
+client_dict = dict()  # client ID: (socket, thread)
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 
 
@@ -117,7 +117,7 @@ def disconnect_vpn_by_ip(server_ip, v_addr):
             print(msg)
 
     except KeyError:
-        print(f"invalid server ip: {server_ip}, received from user")
+        print(f"invalid server ip: {server_ip}; possible cause: server was shutdown so user changed")
 
 
 def handle_client(skt, addr, client_id):
@@ -146,22 +146,32 @@ def handle_client(skt, addr, client_id):
             handle_change(skt, addr[0], client_id, msg)
 
 
-def handle_server_shutdown(msg):
+def handle_server_shutdown(msg, vpn_sock):
     clients = msg.split("~")
+
+    vpn_ip = ""
+    for skt, ip in vpn_servers.items():
+        if skt == vpn_sock:
+            vpn_ip = ip
+
     for client in clients:
         if client not in client_dict:
             print("client ID error:", client)
             continue
         client_skt = client_dict[client][0]  # socket at first index
         thread_msg = client_dict[client][1]  # to thread id at second index
-        client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed", "shutdown"))
+        client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
 
 
-def wait_for_update(skt):
+def wait_for_update(skt, stop_event: threading.Event):
     while True:
         cmd, msg = server_handler.get_thread_data(skt)
         if cmd == "shutdown":
-            handle_server_shutdown(msg)
+            handle_server_shutdown(msg, skt)
+            del vpn_servers[skt]
+            skt.close()
+            stop_event.set()
+            break
 
 
 def listen_for_servers():
@@ -173,10 +183,11 @@ def listen_for_servers():
     while True:
         vpn_sock, addr = servers_socket.accept()
 
-        threading.Thread(target=server_handler.listen_for_commands, args=[vpn_sock]).start()
+        stop_running = threading.Event()
+        threading.Thread(target=server_handler.listen_for_commands, args=[vpn_sock, stop_running]).start()
 
         vpn_servers[addr[0]] = vpn_sock  # save server
-        t = threading.Thread(target=wait_for_update, args=[vpn_sock])
+        t = threading.Thread(target=wait_for_update, args=[vpn_sock, stop_running])
         t.start()
 
 
