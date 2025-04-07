@@ -4,7 +4,7 @@ import threading
 import connect_protocol
 import time
 
-this_ip = "10.0.0.20"
+this_ip = "10.0.0.13"
 client_port = 5500
 port_for_vpn = 8888
 
@@ -25,23 +25,32 @@ def get_fastest_vpn(exception: str = ""):
         # Measure ping
         start_time = time.time()
         vpn_servers[ip].send(connect_protocol.create_msg(f"request~from_id:{this_thread}", "checkup"))
-        cmd, msg = server_handler.get_thread_data(vpn_servers[ip], this_thread)
-        ping = time.time() - start_time  # Stop measuring
+        # print(f"sent to vpn at {ip}, with {vpn_servers[ip]}")
 
+        cmd, msg = server_handler.get_thread_data(vpn_servers[ip], this_thread, 30)
+        ping = time.time() - start_time - 2  # Stop measuring. removes 2 to ignore the 2 seconds load calc
+        # print(f"cmd: '{cmd}'\tmsg: {msg}")
         if cmd != "checkup":
             print("cmd:", cmd)
+
             continue  # Invalid response\Server is full, ignore this server
 
         # Parse response: to_id:{num}~space_left~v_ip~cpu_load
         msg_parts = msg.split("~")
-        if len(msg_parts) != 3:
+        if len(msg_parts) != 4:
             continue  # Malformed response
 
         _, space_left, cpu_load, thread_id = msg_parts  # thread_id = "from_id:{num}"
-        thread_id = f"to_{thread_id.split("_")[1]}"  # thread_id = "to_id:{num}"
 
-        space_left = int(space_left)
         cpu_load = float(cpu_load)  # Assuming it's sent as a number (percentage, e.g., 30 for 30%)
+        space_left = int(space_left)
+
+        if not cpu_load:  # case cpu == 0
+            cpu_load += 0.1
+        if not ping:  # case ping == 0
+            ping += 0.1
+
+        thread_id = f"to_{thread_id.split("_")[1]}"  # thread_id = "to_id:{num}"
 
         if space_left == 0:
             continue  # Skip this server
@@ -49,13 +58,15 @@ def get_fastest_vpn(exception: str = ""):
         # Calculate priority score
         score = (0.6 / ping) + (0.3 * space_left) + (0.1 / cpu_load)
         scores[ip] = (score, thread_id)
+        print("score:", scores[ip])
 
     # Select the best server
     best_server = max(scores, key=lambda x: scores[x][0], default=None)  # Get server with the highest score
-
+    print(best_server)
+    print(scores)
     if not best_server:  # check if got server
+        print("no best server")
         return None, None
-
     # turn scores into a list
     thread_id = scores[best_server][1]  # thread of the server
     del scores[best_server]
@@ -73,6 +84,7 @@ def handle_connect(skt, addr, client_id, port):
 
     if not server_ip:
         skt.send(connect_protocol.create_msg("no server was found", "connect_0"))
+        print("no server was found")
         return False
 
     data = f"{addr}~{port}~{client_id}"
@@ -114,7 +126,7 @@ def disconnect_vpn_by_ip(server_ip, v_addr):
 
         cmd, msg = server_handler.get_thread_data(vpn_socket, threading.get_native_id())
         if cmd != "remove":
-            print(msg)
+            print(f"error at remove: {cmd}, msg: {msg}")
 
     except KeyError:
         print(f"invalid server ip: {server_ip}; possible cause: server was shutdown so user changed")
@@ -123,11 +135,17 @@ def disconnect_vpn_by_ip(server_ip, v_addr):
 def handle_client(skt, addr, client_id):
     while True:
         cmd, msg = connect_protocol.get_msg(skt)
+        if cmd == "break":
+            continue
+
+        print("command got:", cmd)
         if cmd == "exit":
             if msg != "i want to leave":  # indicates that user is already not connected
                 server_ip, v_addr = msg.split('~')
                 disconnect_vpn_by_ip(server_ip, v_addr)  # msg hold the vpn ip
-
+                print("user wants to leave")
+            else:
+                print("user not connected wants to leave")
             del client_dict[client_id]
             skt.close()
             break
@@ -178,10 +196,14 @@ def listen_for_servers():
     # continue the code
     servers_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     servers_socket.bind((this_ip, port_for_vpn))
+    print("VPNs socket is up")
 
     servers_socket.listen(2)  # two servers
     while True:
         vpn_sock, addr = servers_socket.accept()
+        vpn_sock.settimeout(10)
+        vpn_sock.send(connect_protocol.create_msg("hello world", "f_conn"))
+        print(f"new server connected from: {addr}")
 
         stop_running = threading.Event()
         threading.Thread(target=server_handler.listen_for_commands, args=[vpn_sock, stop_running]).start()
@@ -195,14 +217,18 @@ def listen_for_clients():
     clients_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     clients_socket.bind((this_ip, client_port))
 
+    print("client socket is up")
+
     clients_socket.listen(5)
     threads = []
     this_id = 0
     while True:
         this_id += 1  # update ID for each user
         client_socket, addr = clients_socket.accept()  # wait for user
+        client_socket.settimeout(10)
 
         client_id = f"client {this_id}"  # make client ID in string
+        print(f"new client connected: {client_id}, from {addr}")
 
         cmd, msg = connect_protocol.get_msg(client_socket)
         if cmd != "f_conn":
@@ -213,7 +239,7 @@ def listen_for_clients():
 
         client_dict[client_id] = (client_socket, thread_msg)
 
-        t = threading.Thread(target=handle_client, args=[client_socket, addr])
+        t = threading.Thread(target=handle_client, args=[client_socket, addr, client_id])
         t.start()
         threads.append(t)
 
