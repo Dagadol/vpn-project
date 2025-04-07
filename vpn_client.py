@@ -6,7 +6,7 @@ import time
 
 import adapter_conf
 import connect_protocol
-from scapy_client import VPNClient
+import scapy_client
 import queue
 
 # Global state
@@ -14,7 +14,7 @@ vpn_client = None
 v_interface = None
 current_client_port = None
 current_private_ip = None
-main_server_addr = ("10.0.0.20", 5500)
+main_server_addr = ("10.0.0.13", 5500)
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
 key = None
@@ -30,25 +30,28 @@ Else: show list of commands
 """
 
 
-def block_until_finished_task() -> None:
+def block_until_finished_task() -> str:
     global command_queue
-
     i = command_queue.unfinished_tasks
+    if not i:
+        return "queue is empty"
+
     while True:
         if command_queue.unfinished_tasks < i:
-            return None
+            return "last task was finished"
         i = command_queue.unfinished_tasks
         time.sleep(0.01)
 
 
 def handle_exit(skt):
+    global key
     if not handle_disconnect(skt, "exit"):  # if disconnected
 
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "exit"))
 
     adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
-
+    key = None
     return True
 
 
@@ -61,12 +64,13 @@ def handle_connect(skt):
 
     # Generate client port
     port = random.randint(50600, 54000)
-    while port in subprocess.run("netstat -n", capture_output=True, text=True, shell=True).stdout:
+    while str(port) in subprocess.run("netstat -n", capture_output=True, text=True, shell=True).stdout:
         port = random.randint(50600, 54000)
 
     skt.send(connect_protocol.create_msg(str(port), "connect"))
-    cmd, msg = client_handler.get_thread_data(skt)
+    print("sent to server request")
 
+    cmd, msg = client_handler.get_thread_data(skt=skt, block=40)
     if cmd == "connect_0":
         print("Connection refused:", msg)
         return False
@@ -81,14 +85,18 @@ def handle_connect(skt):
         # Create virtual adapter
         v_interface = adapter_conf.Adapter(ip=vm_ip, vpn_ip=vpn_ip)
 
+        # ADD DELAY HERE (e.g., 15 seconds)
+        print("adapter finished initializing")
+        # time.sleep(10)  # Critical for OS to recognize the interface
+
         current_client_port = port
         current_private_ip = my_ip
 
         # Create and start VPN client
-        vpn_client = VPNClient(
+        vpn_client = scapy_client.VPNClient(
             vpn_server_ip=vpn_ip,
             virtual_adapter_ip=vm_ip,
-            virtual_adapter_name=v_interface.name,
+            virtual_adapter_name=v_interface.name,  # Ensure dynamic name
             initial_vpn_port=int(vpn_port),
             client_port=current_client_port,
             private_ip=current_private_ip
@@ -158,7 +166,7 @@ def handle_change(skt):
         v_interface.assign_new_vpn(new_vpn_ip)
 
         # Create new VPN client
-        new_client = VPNClient(
+        new_client = scapy_client.VPNClient(
             vpn_server_ip=new_vpn_ip,
             virtual_adapter_ip=new_vm_ip,
             virtual_adapter_name=v_interface.name,
@@ -182,15 +190,16 @@ def server_connection(skt):  # TODO: exchange keys in this function
     # first connection:
 
     skt.send(connect_protocol.create_msg(f"from_id:{threading.get_native_id()}", "f_conn"))
+    key = True  # for now
     # first connection has was closed
-    while True:
+    while key:
         cmd, msg = client_handler.get_thread_data(skt, threading.get_native_id())
         if cmd == "shutdown":
             thread, msg, ip = msg.split("~")
             print(f"{msg}\tequal threads: {thread == thread.get_native_id()}")
             if vpn_client:
                 if ip == vpn_client.vpn_server_ip:
-                    command_queue.put("change", skt)
+                    command_queue.put(("change", skt))
 
 
 def handle_command_queue():
@@ -206,7 +215,6 @@ def handle_command_queue():
         commands[cmd](args)
         command_queue.task_done()
         # block might be unnecessary
-        block_until_finished_task()
         if cmd == "exit":
             break
 
@@ -220,6 +228,9 @@ def wait_for_command(skt):
     }
 
     while True:
+        print("block is active")
+        print("ended block cause:", block_until_finished_task())  # block
+
         command = input("Enter command: ").lower()
         if command not in commands:
             print(avail_commands)
@@ -227,13 +238,13 @@ def wait_for_command(skt):
 
         if command == "exit":
             # commands[command](skt)
-            command_queue.put(command, skt)
+            command_queue.put((command, skt))
             break
         """
         success = commands[command](skt)
         print("Success" if success else "Failed")
         """
-        command_queue.put(command, skt)
+        command_queue.put((command, skt))
 
 
 client_handler = connect_protocol.CommandHandler()
@@ -243,6 +254,7 @@ def main():
     global key
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
         skt.connect(main_server_addr)
+        # skt.settimeout(10)
         print("Connected to main server")
 
         t_wait = threading.Thread(target=server_connection, args=[skt])
@@ -255,12 +267,11 @@ def main():
         t_command_handler = threading.Thread(target=handle_command_queue)  # maybe set as a daemon
         t_command_handler.start()
 
-        threading.Thread(target=wait_for_command, args=[skt]).run()
-        t_wait.join()
-        client_handler.turn_off()
-        # wait_for_command(skt)
+        wait_for_command(skt)
 
-    client_handler.turn_off()
+        client_handler.turn_off()
+        t_wait.join()
+
     print("Connection closed")
 
 
