@@ -4,8 +4,10 @@ import threading
 import time
 
 from scapy.all import sniff, send
+from scapy.arch.windows import get_windows_if_list
 from scapy.layers.inet import IP
 
+import adapter_conf
 import connect_protocol
 import nat_class
 
@@ -102,7 +104,7 @@ class VPNClient:
         self.udp_socket.sendto(
             f"{checksum}~~".encode() + encrypted,
             (self.vpn_ip, self.vpn_port))
-        print(f"Sent packet to VPN: {pkt.summary()}")
+        # print(f"Sent packet to VPN: {pkt.summary()}")
 
     def _scapy_filter(self, pkt):
         """Filter for packets from virtual adapter not destined for VPN"""
@@ -116,29 +118,60 @@ class VPNClient:
 
     def _receive_from_adapter(self):
         """Sniff packets from the virtual adapter and forward them to the VPN."""
+        from scapy.config import conf
+        conf.ifaces.reload()
+
+        time.sleep(2)  # After reloading interfaces
+
         attempt = 0
+
+        guid = self.virtual_adapter_name
+        index = self.virtual_adapter_name
+        description = self.virtual_adapter_name
+
+        for adapter in get_windows_if_list():
+            if adapter["name"] == self.virtual_adapter_name:
+                index = adapter["index"]
+                description = adapter["description"]
+                guid = adapter["guid"]
+
+        name = self.virtual_adapter_name
+
         while self.active:  # Continue as long as the VPN connection is active
             try:
                 sniff(
                     prn=lambda p: self._send_to_vpn(p),  # Function to process packets
                     lfilter=self._scapy_filter,  # Packet filter, if any
-                    iface=self.virtual_adapter_name,  # Interface name (e.g., "wrgrd")
+                    iface=name,  # self.virtual_adapter_name,  # Interface name (e.g., "wrgrd")
                     stop_filter=lambda p: not self.active  # Stop when connection ends
                 )
                 print("Successfully started sniffing on the virtual adapter.")
                 break  # Exit the loop once sniffing starts successfully
             except Exception as e:
                 attempt += 1
-                print(f"Attempt {attempt}: Failed to start sniffing - {e}")
+
+                # every 5 failed attempts, change name of the iface
+                if attempt % 5 == 0:
+                    conf.ifaces.reload()
+                    if name == self.virtual_adapter_name:
+                        name = description
+                    elif name == description:
+                        name = index
+                    elif name == index:
+                        name = guid
+                    else:
+                        name = self.virtual_adapter_name
+
+                print(f"Attempt {attempt}, with the name '{name}': Failed to start sniffing - {e}")
                 time.sleep(1)  # Wait 1 second before retrying
         else:
             print("Stopped sniffing due to VPN connection termination.")
 
     def _receive_from_vpn(self):
         """Receive from VPN server and inject into virtual adapter"""
+        print("started VPN receiving")
         while self.active:
             try:
-
                 data, addr = self.udp_socket.recvfrom(65535)
                 print("received data")
                 if addr[0] != self.vpn_ip:
@@ -166,7 +199,7 @@ class VPNClient:
 
 
 if __name__ == '__main__':
-    #v_interface = adapter_conf.Adapter(ip="10.0.0.50", vpn_ip="10.0.0.21")
+    v_interface = adapter_conf.Adapter(ip="10.0.0.50", vpn_ip="10.0.0.21")
     #print("name:", f"'{v_interface.name}'", "\tip:", v_interface.ip, "\nwait 15 seconds")
     #print("wait 25")
     #time.sleep(10)
@@ -174,13 +207,13 @@ if __name__ == '__main__':
     # Example usage
     client = VPNClient(
         vpn_server_ip="10.0.0.21",
-        virtual_adapter_ip="10.0.0.50",
-        #virtual_adapter_ip=v_interface.ip,
-        virtual_adapter_name="wrgrd",
-        #virtual_adapter_name=v_interface.name,
+        #virtual_adapter_ip="10.0.0.50",
+        virtual_adapter_ip=v_interface.ip,
+        #virtual_adapter_name="wrgrd",
+        virtual_adapter_name=v_interface.name,
         initial_vpn_port=5123,
         client_port=8800,
-        private_ip="10.0.0.15"
+        private_ip="10.0.0.13"
     )
 
     try:
@@ -190,4 +223,4 @@ if __name__ == '__main__':
             threading.Event().wait(1)
     except KeyboardInterrupt:
         client.end_connection()
-        #v_interface.delete_adapter()
+        v_interface.delete_adapter()
