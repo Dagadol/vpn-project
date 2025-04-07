@@ -168,3 +168,11 @@ try:
 except KeyboardInterrupt:
     client.end_connection()
     v_interface.delete_adapter()
+
+name = ""
+ls = get_windows_if_list()
+for adapter in ls:
+    if adapter["name"] == name:
+        index = adapter["index"]
+        description = adapter["description"]
+        guid = adapter["guid"]
