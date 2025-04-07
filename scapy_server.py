@@ -26,18 +26,22 @@ class OpenServer:
             self.keys = keys  # user_ip: key
         self.skt = None
 
-        self.t_recv = threading.Thread(target=self.internet_recv, daemon=True)
-        self.t_send = threading.Thread(target=self.internet_send, daemon=True)
-        self.t_cleanup = threading.Thread(target=self.nat.cleanup_nat_table, daemon=True)
+        self.t_recv = None
+        self.t_send = None
+        self.t_cleanup = None
+
         self.udp_port = server_port
 
         self.conn = False
 
     def open_conn(self):
-        if not (self.t_recv.is_alive() and self.t_send.is_alive()) or not self.conn:
+        if not (self.t_recv and self.t_send) or not self.conn:
             self.conn = True
             # self.clients = clients
             # self.nat.users_addr = self.clients
+            self.t_recv = threading.Thread(target=self.internet_recv, daemon=True)
+            self.t_send = threading.Thread(target=self.internet_send, daemon=True)
+            self.t_cleanup = threading.Thread(target=self.nat.cleanup_nat_table, daemon=True)
 
             self.skt = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.skt.bind(("0.0.0.0", self.udp_port))
@@ -56,16 +60,25 @@ class OpenServer:
             self.nat.cleanup = False
 
             # close threads
-            self.t_recv.join()
-            self.t_send.join()
-            self.t_cleanup.join()
+            try:
+                print("before recv join")
+                self.t_recv.join()
+                print("before send join")
+                self.t_send.join()
+                print("before cleanup join")
+                self.t_cleanup.join()
+            except AttributeError as e:
+                print("joined while conn was off:", e)
+            self.t_recv = None
+            self.t_send = None
+            self.t_cleanup = None
 
             self.skt = None
             print("connection has closed")
 
     def remove_client(self, v_addr):
-        del self.nat.users_addr[v_addr]
-        del self.clients[v_addr]
+        a = self.nat.users_addr.pop(v_addr, None)
+        a = self.clients.pop(v_addr, None)
 
     def update_addr(self):
         self.nat.users_addr = self.clients
@@ -85,7 +98,7 @@ class OpenServer:
             if checksum.decode() == this_checksum:
                 # decrypt data, according to this addr key
                 pkt = connect_protocol.decrypt(encrypted_pkt, self.keys[addr])
-                print("valid checksum:", IP(pkt))
+                # print("valid checksum:", IP(pkt))
 
                 return pkt
             print("broken checksum:", this_checksum)
@@ -106,15 +119,15 @@ class OpenServer:
 
                 if new_pkt:
                     new_pkt = IP(new_pkt)
-                    print("sending to internet:", new_pkt)
-                    send(new_pkt)
+                    # print("sending to internet:", new_pkt)
+                    send(new_pkt, verbose=False)
                 else:
                     print("invalid packet:", pkt)
 
     def forward_to_client(self, pkt):
         updated_pkt = self.nat.internet_recv(pkt)
         if updated_pkt:
-            print("returning to client:", updated_pkt)
+            # print("returning to client:", updated_pkt)
             addr = self.nat.get_socket_dst(updated_pkt)  # get the addr info
 
             # encrypt before sending

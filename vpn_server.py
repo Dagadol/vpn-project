@@ -7,8 +7,8 @@ from scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
 
-server_ip = "10.0.0.20"
-my_ip = "10.0.0.13"
+server_ip = "10.0.0.13"
+my_ip = "10.0.0.21"
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
 
@@ -60,6 +60,7 @@ def handle_checkup(my_socket, msg):
 
         # add new client
         vpn.clients[v_addr] = (client_ip, client_port)
+        print(f"here: {vpn.clients}")
         vpn.update_addr()
 
         threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn]).start()
@@ -77,6 +78,7 @@ def handle_remove(skt, msg):
 
     if v_addr not in vpn.clients:
         skt.send(connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
+        print("user does not exit")
     ip = vpn.clients[v_addr][0]  # client's ip
 
     # remove user's data
@@ -93,6 +95,8 @@ def handle_remove(skt, msg):
     if not vpn.clients:  # close connection if needed (case no clients)
         vpn.close_conn()
         available = list(reversed(ADDRESSES))  # reset the list of available users
+    else:
+        print(f"vpn clients are: {vpn.clients}")
 
 
 def handle_shutdown(skt):
@@ -118,15 +122,19 @@ def handle_shutdown(skt):
 def handle_server(my_socket):
     while on:
         cmd, msg = handler.get_thread_data(my_socket)
-        print("msg:", msg)
+        if msg:
+            print("msg:", msg)
+
         if cmd == "checkup":
+            print("checkup:", msg)
             threading.Thread(target=handle_checkup, args=[my_socket, msg]).start()
-        if cmd == "remove":
+        elif cmd == "remove":
+            print("remove:", msg)
             threading.Thread(target=handle_remove, args=[my_socket, msg]).start()
-        if cmd == "break":  # no msg was incoming
+        elif cmd == "break":  # no msg was incoming
             continue
         else:
-            print("unknown command:", cmd, "\nmsg received: ", msg)
+            print(f"unknown command: '{cmd}'\nmsg received: {msg}")
 
 
 def main():

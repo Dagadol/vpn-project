@@ -173,21 +173,21 @@ class VPNClient:
         while self.active:
             try:
                 data, addr = self.udp_socket.recvfrom(65535)
-                print("received data")
+                # print("received data")
                 if addr[0] != self.vpn_ip:
                     continue
 
                 # Split checksum and data
                 checksum, _, encrypted = data.partition(b"~~")
                 if hashlib.md5(encrypted).hexdigest() != checksum.decode():
-                    print("Checksum mismatch!")
+                    # print("Checksum mismatch!")
                     continue
 
                 decrypted = connect_protocol.decrypt(encrypted, self.key)
                 pkt = IP(decrypted)
-                print(f"received packet: {pkt}")
-                send(pkt, iface='Software Loopback Interface 1')
-                print(f"Self injected packet: {pkt.summary()}")
+                # print(f"received packet: {pkt}")
+                send(pkt, iface='Software Loopback Interface 1', verbose=False)
+                # print(f"Self injected packet: {pkt.summary()}")
 
             except (socket.timeout, ValueError):
                 continue

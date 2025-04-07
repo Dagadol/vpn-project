@@ -113,7 +113,7 @@ class ClassNAT:
                 )
                 index = len(self.nat_table) - 1
             else:
-                print("*****"*10, "reusing connection")
+                # print("*****"*10, "reusing connection")
                 index = dict_table[info_address]
 
                 # update port timeout
@@ -144,7 +144,7 @@ class ClassNAT:
         :return: data, client's ip address
         """
 
-        if data.dst != self.vpn_ip:  # drop packet if destination is not this VPN
+        if data[IP].dst != self.vpn_ip:  # drop packet if destination is not this VPN
             return None
 
         # get layer 4 of the packet  (UDP/TCP)
@@ -221,3 +221,4 @@ class ClassNAT:
             if cleaned_up:
                 print(f"Cleanup: Removed {cleaned_up} entries")
             print(f"entries amount: {len(self.nat_table)}")
+
