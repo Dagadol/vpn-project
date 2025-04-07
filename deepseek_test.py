@@ -7,7 +7,7 @@ import struct
 class ClassNAT:
     def __init__(self, my_ip, max_user_conn=1000):
         self.vpn_ip = my_ip
-        self.port_pool = deque(range(32768, 60999))  # Expanded port range
+        self.port_pool = deque(range(32768, 60999))  # Expanded linux port range
         self.nat_table = {}  # Format: {(src_ip, src_port, proto, dst_ip, dst_port): (public_port, last_active)}
         self.user_conn_count = defaultdict(int)  # Track connections per user
         self.max_user_conn = max_user_conn
