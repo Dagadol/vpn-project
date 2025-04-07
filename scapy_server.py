@@ -8,15 +8,17 @@ import threading
 
 
 class OpenServer:
-    def __init__(self, server_ip, server_port, clients: dict = None, keys: dict = None):
+    def __init__(self, this_server_ip, server_port, user_amount, clients: dict = None, keys: dict = None):
         # default_clients = {"10.0.0.50": ("10.0.0.11", 8800)}  # virtual adapter: (skt.ip, skt.port)
         self.clients = clients  # v_addr: (user_ip, user_port)
+        if self.clients is None:
+            self.clients = dict()
 
         # if clients is None. create a value, and enter it the nat class
         # in order to make the nat.users_addr point at self.clients
         #if clients is None:
         #    self.clients["1"] = "2"
-        self.nat = nat_class.ClassNAT(my_ip=server_ip, users=self.clients)
+        self.nat = nat_class.ClassNAT(my_ip=this_server_ip, users_amount=user_amount, users=self.clients)
         #del clients["1"]
 
         self.keys = dict()
@@ -39,6 +41,7 @@ class OpenServer:
 
             self.skt = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.skt.bind(("0.0.0.0", self.udp_port))
+            self.skt.settimeout(5)
 
             # start threads
             self.t_recv.start()
@@ -47,12 +50,14 @@ class OpenServer:
             self.t_cleanup.start()
 
     def close_conn(self):
+        print("closing connection")
         if self.conn:
             self.conn = False
+            self.nat.cleanup = False
+
             # close threads
             self.t_recv.join()
             self.t_send.join()
-            self.nat.cleanup = False
             self.t_cleanup.join()
 
             self.skt = None
@@ -90,7 +95,10 @@ class OpenServer:
 
     def internet_send(self):
         while self.conn:
-            data, addr = self.skt.recvfrom(65535)  # receive from client through udp socket
+            try:
+                data, addr = self.skt.recvfrom(65535)  # receive from client through udp socket
+            except socket.timeout:
+                continue
 
             pkt = self.valid(data, addr[0])
             if pkt:
@@ -121,7 +129,7 @@ class OpenServer:
 
     def internet_recv(self):
         while self.conn:
-            sniff(prn=lambda p: self.forward_to_client(p), filter="ip", stop_filter=(not self.conn))
+            sniff(prn=lambda p: self.forward_to_client(p), filter="ip", stop_filter=lambda p: (not self.conn))
             print("sniffed stopped")
 
 
@@ -176,9 +184,10 @@ if __name__ == '__main__':
     allowed_clients = dict()
     allowed_clients["10.0.0.50"] = ("10.0.0.12", 8800)
     server = OpenServer(
-        server_ip="10.0.0.22",
+        this_server_ip="10.0.0.22",
         server_port=8888,
-        clients=allowed_clients
+        clients=allowed_clients,
+        user_amount=1
     )
     tcp_connection(
         client_ip="10.0.0.12",
