@@ -39,7 +39,7 @@ def tcp_udp(p):
 
 
 class ClassNAT:
-    def __init__(self, my_ip, users=None):
+    def __init__(self, my_ip, users_amount: int, users=None):
         # if users:  # todo, i should be the one to assign IPs to the virtual adapters
 
         # set users allowed to connect to this server
@@ -53,7 +53,9 @@ class ClassNAT:
         # todo try optimize to use sockets and struct instead of scapy
         # fixme port pool get exhausted early think about a new way to deal with it
         # maybe less ports per user or more ports, or limit user port use. D
-        self.port_pool = deque(range(50000, 50500))  # might want to validate that all these ports are available
+        users_amount *= 500
+        users_amount += 50000
+        self.port_pool = deque(range(50000, users_amount))  # might want to validate that all these ports are available
         self.nat_table = []  # format: ((client.src, client.sport), public port, (client.dst, client.dport))
         self.nat_timeouts = {}  # Track last activity time
         self.cleanup = False
@@ -141,7 +143,11 @@ class ClassNAT:
         :param data: scapy TCP/UDP packet
         :return: data, client's ip address
         """
-        # get layer 4 of the packet
+
+        if data.dst != self.vpn_ip:  # drop packet if destination is not this VPN
+            return None
+
+        # get layer 4 of the packet  (UDP/TCP)
         layer4 = tcp_udp(data)
         if not layer4:
             print("invalid internet packet struct:", data)
@@ -210,4 +216,8 @@ class ClassNAT:
                 del self.nat_timeouts[port]
                 self.port_pool.append(port)
                 self.nat_table = [i for i in self.nat_table if i[1] != port]
-            print(f"Cleanup: Removed {len(stale)} entries")
+
+            cleaned_up = len(stale)
+            if cleaned_up:
+                print(f"Cleanup: Removed {cleaned_up} entries")
+            print(f"entries amount: {len(self.nat_table)}")
