@@ -8,6 +8,7 @@ import connect_protocol
 
 
 server_ip = "10.0.0.20"
+my_ip = "10.0.0.13"
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
 
@@ -16,7 +17,7 @@ available = list(reversed(ADDRESSES))
 clients = dict()  # v_addr: client_id
 handler = connect_protocol.CommandHandler()  # command waiting list
 # keys = dict()  # client_ip: key
-vpn = OpenServer(server_ip, udp_port)
+vpn = OpenServer(my_ip, udp_port, user_amount=len(ADDRESSES))
 on = True
 
 
@@ -33,12 +34,13 @@ def handle_checkup(my_socket, msg):
     del available[-1]
 
     space_left = len(available) + 1
-    load = psutil.cpu_percent()
+    load = psutil.cpu_percent(2)
     this_thread = threading.get_native_id()
     data = f"{thread_part}~{space_left}~{load}~from_id:{this_thread}"  # add thread id to the end of data
 
     # send data ASAP
     my_socket.send(connect_protocol.create_msg(data=data, cmd="checkup"))
+
     # get data back
     cmd, msg = handler.get_thread_data(my_socket, this_thread)
 
@@ -47,6 +49,7 @@ def handle_checkup(my_socket, msg):
         return False
     elif cmd == "checkup1":  # server was assigned
         _, client_ip, client_port, client_id = msg.split("~")
+        client_port = int(client_port)
         clients[v_addr] = client_id  # save client
 
         # set tcp_port
@@ -122,6 +125,8 @@ def handle_server(my_socket):
             threading.Thread(target=handle_remove, args=[my_socket, msg]).start()
         if cmd == "break":  # no msg was incoming
             continue
+        else:
+            print("unknown command:", cmd, "\nmsg received: ", msg)
 
 
 def main():
@@ -129,13 +134,14 @@ def main():
     atexit.register(handle_shutdown)  # activate on exit
 
     my_socket.connect((server_ip, server_port))
-
+    my_socket.settimeout(5)
     # TODO: add encryptions here
     # good place to apply RSA encryption to exchange keys
     # let the server know about the Main thread ID
     # my_socket.send(connect_protocol.create_msg(), "vpn_in"))
 
     threading.Thread(target=handler.listen_for_commands, args=[my_socket]).start()
+    print("listening for commands")
 
     handle_server(my_socket)
 
