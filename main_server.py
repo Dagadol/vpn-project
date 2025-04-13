@@ -2,11 +2,13 @@ import socket
 import threading
 
 import connect_protocol
+import db_communication
 import time
 
-this_ip = "10.0.0.13"
+this_ip = "10.0.0.10"
 client_port = 5500
 port_for_vpn = 8888
+list_of_allowed_VPNs = []
 
 vpn_servers = dict()  # server IP: socket
 client_dict = dict()  # client ID: (socket, thread)
@@ -119,6 +121,10 @@ def handle_change(skt, addr, client_id, msg):
 def disconnect_vpn_by_ip(server_ip, v_addr):
     threading_msg = f"from_id:{threading.get_native_id()}"
     try:
+        if server_ip not in vpn_servers:
+            print("server is not available")
+            return
+
         vpn_socket = vpn_servers[server_ip]  # need to check if server_ip is in for error
 
         # let the vpn know the user has disconnect
@@ -130,9 +136,80 @@ def disconnect_vpn_by_ip(server_ip, v_addr):
 
     except KeyError:
         print(f"invalid server ip: {server_ip}; possible cause: server was shutdown so user changed")
+        # another possible cause, is if user is a hacker and tried to do something fishi
 
 
-def handle_client(skt, addr, client_id):
+def try_login(client) -> bool:
+    if not client.is_registered():
+        # is not registered
+        return False
+
+    client.get_user_id()  # setting the ID
+    if not client.valid_login():
+        # passwords do not match
+        return False
+
+    client.get_role()  # save role
+    return True
+
+
+def try_signup(client) -> bool:
+    if client.is_registered():
+        # already registered
+        return False
+
+    client.insert_client()
+    client.get_user_id()  # set ID
+    return True
+
+
+def handle_login(skt, addr, client_id):
+    login = False
+    this_client = None
+    while not login:
+        cmd, msg = connect_protocol.get_msg(skt)
+        if cmd == "break":
+            if msg != "timeout error":
+                # suspicious activity
+                break
+            continue
+        elif cmd == "exit":
+            print("user left the program")
+            break
+        elif not (cmd == "signup" or cmd == "login"):
+            print("error at waiting to login cmd:", cmd, "msg:", msg)
+            break
+
+        print("cmd:", cmd, "msg:", msg)
+        email, password = msg.split("~")
+        this_client = db_communication.Client(email, password)
+
+        if cmd == "login":
+            login = try_login(this_client)
+            reason = "email or password incorrect"
+        else:
+            login = try_signup(this_client)
+            reason = "user exist already"
+
+        if not login:
+            data = connect_protocol.create_msg(reason, "fail")
+            print("data sent:", data)
+            skt.send(data)
+
+    if not this_client:
+        # skt.send(connect_protocol.create_msg("error", "fail"))  # might not be needed
+        del client_dict[client_id]
+        skt.close()
+
+    if login and this_client:
+        data = connect_protocol.create_msg(this_client.role, "success")
+        print("data sent:", data)
+        skt.send(data)
+        handle_client(skt, addr, client_id, this_client)
+
+
+def handle_client(skt, addr, client_id, client):
+    logout = False
     while True:
         cmd, msg = connect_protocol.get_msg(skt)
         if cmd == "break":
@@ -162,9 +239,21 @@ def handle_client(skt, addr, client_id):
         elif cmd == "change":
             # threading.Thread(target=handle_change, args=[skt, addr[0], client_id, msg])
             handle_change(skt, addr[0], client_id, msg)
+        elif cmd == "logout":
+            logout = True
+            if msg != "i want to leave":
+                server_ip, v_addr = msg.split('~')
+                disconnect_vpn_by_ip(server_ip, v_addr)  # msg hold the vpn ip
+            break
+
+    if logout:
+        handle_login(skt, addr, client_id)
 
 
 def handle_server_shutdown(msg, vpn_sock):
+    if msg == "none":
+        return
+
     clients = msg.split("~")
 
     vpn_ip = ""
@@ -181,12 +270,14 @@ def handle_server_shutdown(msg, vpn_sock):
         client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
 
 
-def wait_for_update(skt, stop_event: threading.Event):
+def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
+    global vpn_servers
     while True:
         cmd, msg = server_handler.get_thread_data(skt)
         if cmd == "shutdown":
             handle_server_shutdown(msg, skt)
-            del vpn_servers[skt]
+            print("server saved:", vpn_servers)
+            del vpn_servers[vpn_ip]  # forget vpn
             skt.close()
             stop_event.set()
             break
@@ -201,6 +292,13 @@ def listen_for_servers():
     servers_socket.listen(2)  # two servers
     while True:
         vpn_sock, addr = servers_socket.accept()
+
+        # check if IP address is valid
+        if list_of_allowed_VPNs:  # if list was created with values
+            if addr[0] not in list_of_allowed_VPNs:
+                vpn_sock.close()
+                continue
+
         vpn_sock.settimeout(10)
         vpn_sock.send(connect_protocol.create_msg("hello world", "f_conn"))
         print(f"new server connected from: {addr}")
@@ -209,7 +307,7 @@ def listen_for_servers():
         threading.Thread(target=server_handler.listen_for_commands, args=[vpn_sock, stop_running]).start()
 
         vpn_servers[addr[0]] = vpn_sock  # save server
-        t = threading.Thread(target=wait_for_update, args=[vpn_sock, stop_running])
+        t = threading.Thread(target=wait_for_update, args=[vpn_sock, addr[0], stop_running])
         t.start()
 
 
@@ -239,7 +337,7 @@ def listen_for_clients():
 
         client_dict[client_id] = (client_socket, thread_msg)
 
-        t = threading.Thread(target=handle_client, args=[client_socket, addr, client_id])
+        t = threading.Thread(target=handle_login, args=[client_socket, addr, client_id])
         t.start()
         threads.append(t)
 
@@ -247,8 +345,6 @@ def listen_for_clients():
 if __name__ == '__main__':
     # todo: add threads beneath. and apply what need so it will work with the threads in `vpn_server.py`
     t_server = threading.Thread(target=listen_for_servers)
-    t_client = threading.Thread(target=listen_for_clients)
     t_server.start()
-    t_client.start()
+    listen_for_clients()
     t_server.join()
-    t_client.join()
