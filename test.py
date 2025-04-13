@@ -122,57 +122,90 @@ t = threading.Thread(target=abc, args=[b])
 t.start()
 print(4)"""
 
-import adapter_conf
-v_interface = adapter_conf.Adapter(ip='10.0.0.50', vpn_ip='10.0.0.21')
+
+def create_adapter():
+    import adapter_conf
+    v_interface = adapter_conf.Adapter(ip='10.0.0.50', vpn_ip='10.0.0.21')
+
+    from scapy.arch.windows import get_windows_if_list
+
+    # interfaces = get_windows_if_list()
+    # name = v_interface.name
+
+    """for iface in interfaces:
+        # print(iface)
+        if name in iface['name']:
+            print("here")"""
+    """
+    try:
+        print("started 10 wait")
+        time.sleep(10)
+        print("stopped waiting")
+    except KeyboardInterrupt:
+        v_interface.delete_adapter()
+        print("try to exit")
+        exit()"""
+
+    print("did not exit")
+    create_client(v_interface)
 
 
-from scapy.arch.windows import get_windows_if_list
+def create_client(v_interface):
+    import scapy_client
 
-# interfaces = get_windows_if_list()
-# name = v_interface.name
+    client = scapy_client.VPNClient(
+            vpn_server_ip="10.0.0.21",
+            #virtual_adapter_ip="10.0.0.50",
+            virtual_adapter_ip=v_interface.ip,
+            #virtual_adapter_name="wrgrd",
+            virtual_adapter_name=v_interface.name,
+            initial_vpn_port=5123,
+            client_port=8800,
+            private_ip="10.0.0.15"
+        )
 
-"""for iface in interfaces:
-    # print(iface)
-    if name in iface['name']:
-        print("here")"""
+    try:
+        client.open_connection()
+        # Keep main thread alive while connection is active
+        while client.active:
+            threading.Event().wait(1)
+    except KeyboardInterrupt:
+        client.end_connection()
+        v_interface.delete_adapter()
 """
-try:
-    print("started 10 wait")
-    time.sleep(10)
-    print("stopped waiting")
-except KeyboardInterrupt:
-    v_interface.delete_adapter()
-    print("try to exit")
-    exit()"""
+    name = ""
+    ls = get_windows_if_list()
+    for adapter in ls:
+        if adapter["name"] == name:
+            index = adapter["index"]
+            description = adapter["description"]
+            guid = adapter["guid"]
+"""
 
-print("did not exit")
 
-import scapy_client
+def raise_exception():
+    a = 1
+    b = 0
+    c = a/b
+    return c
 
-client = scapy_client.VPNClient(
-        vpn_server_ip="10.0.0.21",
-        #virtual_adapter_ip="10.0.0.50",
-        virtual_adapter_ip=v_interface.ip,
-        #virtual_adapter_name="wrgrd",
-        virtual_adapter_name=v_interface.name,
-        initial_vpn_port=5123,
-        client_port=8800,
-        private_ip="10.0.0.15"
-    )
 
-try:
-    client.open_connection()
-    # Keep main thread alive while connection is active
-    while client.active:
-        threading.Event().wait(1)
-except KeyboardInterrupt:
-    client.end_connection()
-    v_interface.delete_adapter()
+def check_exception():
+    try:
+        raise_exception()
+    except ZeroDivisionError:
+        print("catch error")
 
-name = ""
-ls = get_windows_if_list()
-for adapter in ls:
-    if adapter["name"] == name:
-        index = adapter["index"]
-        description = adapter["description"]
-        guid = adapter["guid"]
+
+from tkinter import *
+import customtkinter
+
+
+def create_tk():
+    root = customtkinter.CTk()
+    root.geometry('600x350')
+    root.mainloop()
+    print("here")
+
+
+create_tk()
