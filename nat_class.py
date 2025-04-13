@@ -27,14 +27,14 @@ def tcp_udp(p):
             return p[UDP]
         elif TCP in p:
             return p[TCP]
-    print("problems with the transport layer of the packet")
+    # print("problems with the transport layer of the packet")
     try:
         return p[UDP]
     except IndexError:
         try:
             return p[TCP]
         except IndexError:
-            print("problematic packet is:", p)
+            # print("problematic packet is:", p)
             return None
 
 
