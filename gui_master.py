@@ -63,8 +63,9 @@ class AppGUI(customtkinter.CTk):
             email = email_entry.get()
             password = password_entry.get()
 
-            if not valid_params(email, password):
+            if not valid_params(email, password):  # client's side
                 print("invalid email or password")
+                block_buttons(tabs, "normal")  # unblock buttons
                 return
 
             # set up msg
