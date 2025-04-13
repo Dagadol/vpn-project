@@ -13,7 +13,8 @@ import time
 BASE = 2  # hd base
 FIXED_LEN = 4
 command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
-                "exchange", "f_conn", "test", "vpn_in", "checkup", "checkup0", "checkup1", "shutdown", "remove"]
+                "exchange", "f_conn", "test", "vpn_in", "checkup", "checkup0", "checkup1", "shutdown", "remove",
+                "login", "signup", "fail", "success", "logout"]
 
 
 class CommandHandler:
@@ -131,14 +132,21 @@ def get_msg(skt, key=None):
         return "break", f"socket was closed{e}"
 
 
-def get_prime(bits: int = 2048) -> int:
+def get_prime() -> int:
     """
-    generate secure (enough) prime for diffie-helman protocol
-    :param bits: int like object, bits amount of the prime number, default is set to 2048
-    :return: random prime with 2048 bits
+    generate a secure prime for diffie-helman protocol
+    :return: a 2048-bit MODP group from RFC 3526
     """
-    # 2048 imo is an overkill for this project, but funny
-    return sympy.nextprime(random.getrandbits(bits))
+    # return sympy.nextprime(random.getrandbits(bits))  # used sympy in the past to generate prime
+    # now using a constant prime
+    p_number = """323170060713110073003389139264238282488179412411402391128420097514007417066343542226196894173635693471
+17901737909704191754605873209195028853758986185622153212175412514901774520270235796078236248884246189477587641105928
+64609941172324542662252219323054091903768052423551912567971587011700105805587765103886184728025797605490356973256152
+61670813393617995413364765591603683178967290731783845896806396719009772021941686472258710314113364293195361934716365
+33209717077448227988588565369208645296636077250268955505928362751121174096972998068410554359584866583291642136218231
+078990999448652468262416972035911852507045361090559"""
+    p_number = p_number.replace("\n", "", 8)
+    return int(p_number)
 
 
 def get_key(base: int, key: int, mod: int) -> int:
