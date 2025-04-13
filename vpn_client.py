@@ -8,17 +8,22 @@ import adapter_conf
 import connect_protocol
 import scapy_client
 import queue
+import gui_master
+
 
 # Global state
 vpn_client = None
 v_interface = None
 current_client_port = None
 current_private_ip = None
-main_server_addr = ("10.0.0.13", 5500)
+main_server_addr = ("10.0.0.10", 5500)
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
 key = None
 command_queue = queue.Queue()
+client_handler = connect_protocol.CommandHandler()
+vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
+
 
 avail_commands = """
 invalid command!
@@ -43,6 +48,20 @@ def block_until_finished_task() -> str:
         time.sleep(0.01)
 
 
+def handle_logout(skt):
+    if not handle_disconnect(skt, "logout"):
+
+        # Notify server
+        skt.send(connect_protocol.create_msg("i want to leave", "logout"))
+
+    print("start clear")
+    vpn_gui.clear_window()
+    print("end clear")
+
+    vpn_gui.login()
+    return True
+
+
 def handle_exit(skt):
     global key
     if not handle_disconnect(skt, "exit"):  # if disconnected
@@ -55,12 +74,12 @@ def handle_exit(skt):
     return True
 
 
-def handle_connect(skt):
+def handle_connect(skt) -> bool:
     global vpn_client, v_interface, current_client_port, current_private_ip
 
     if vpn_client:
         print("Already connected")
-        return False
+        return True  # return True, meaning client is connected. but should not get here
 
     # Generate client port
     port = random.randint(50600, 54000)
@@ -111,7 +130,7 @@ def handle_connect(skt):
         return False
 
 
-def handle_disconnect(skt, cmd: str = "dconnect"):
+def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
     global vpn_client, v_interface, current_client_port, current_private_ip
 
     if not vpn_client:
@@ -197,9 +216,15 @@ def server_connection(skt):  # TODO: exchange keys in this function
         if cmd == "shutdown":
             thread, msg, ip = msg.split("~")
             print(f"{msg}\tequal threads: {thread == thread.get_native_id()}")
+
+            # check if client is still connected to current server
             if vpn_client:
                 if ip == vpn_client.vpn_server_ip:
-                    command_queue.put(("change", skt))
+                    if command_queue.all_tasks_done:  # if no tasks in commands
+                        command_queue.put(("change", skt))
+
+                        # block GUI's buttons
+                        gui_master.block_buttons(vpn_gui)
 
 
 def handle_command_queue():
@@ -208,46 +233,34 @@ def handle_command_queue():
         "connect": handle_connect,
         "disconnect": handle_disconnect,
         "change": handle_change,
-        "exit": handle_exit
+        "exit": handle_exit,
+        "logout": handle_logout
     }
     while True:
         cmd, args = command_queue.get()
-        commands[cmd](args)
-        command_queue.task_done()
+        print("current command:", cmd)
+        if cmd == "disconnect":
+            vpn_gui.connected = False
+        elif cmd == "connect":
+            vpn_gui.connected = commands[cmd](args)
+
+        if cmd != "connect":
+            commands[cmd](args)
+
         # block might be unnecessary
         if cmd == "exit":
             break
 
-
-def wait_for_command(skt):
-    commands = {
-        "connect": handle_connect,
-        "disconnect": handle_disconnect,
-        "change": handle_change,
-        "exit": handle_exit
-    }
-
-    while True:
-        print("block is active")
-        print("ended block cause:", block_until_finished_task())  # block
-
-        command = input("Enter command: ").lower()
-        if command not in commands:
-            print(avail_commands)
-            continue
-
-        if command == "exit":
-            # commands[command](skt)
-            command_queue.put((command, skt))
-            break
-        """
-        success = commands[command](skt)
-        print("Success" if success else "Failed")
-        """
-        command_queue.put((command, skt))
+        command_queue.task_done()
+        vpn_gui.unblock_buttons()
 
 
-client_handler = connect_protocol.CommandHandler()
+def wait_for_command_gui(skt):
+    vpn_gui.socket = skt
+    vpn_gui.login()
+    vpn_gui.mainloop()
+    print("left program")
+    command_queue.put(("exit", skt))
 
 
 def main():
@@ -267,7 +280,7 @@ def main():
         t_command_handler = threading.Thread(target=handle_command_queue)  # maybe set as a daemon
         t_command_handler.start()
 
-        wait_for_command(skt)
+        wait_for_command_gui(skt)
 
         client_handler.turn_off()
         t_wait.join()
