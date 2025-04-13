@@ -114,6 +114,10 @@ def handle_shutdown(skt):
     for v_addr in clients:
         str_clients = clients[v_addr] + "~"
     data = str_clients[0:-1]
+
+    if not data:  # if no users connected
+        data = "none"
+
     skt.send(connect_protocol.create_msg(data, "shutdown"))
     # close connection
     skt.close()
