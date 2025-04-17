@@ -1,153 +1,213 @@
 from tkinter import *
 import customtkinter
 import re  # regex
-
+import logging
 import connect_protocol
 
 
-def block_buttons(tabs, state: str = "disabled"):  # find a way to build this recursively; Done. is this good?
+class TextboxHandler(logging.Handler):
+    def __init__(self, gui):
+        super().__init__()
+        self.gui = gui
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.gui.after(0, lambda: self.gui.add_to_textbox(msg))
+
+
+def block_buttons(tabs, state: str = "disabled"):
     for widget in tabs.winfo_children():
         if isinstance(widget, customtkinter.CTkButton):
             widget.configure(state=state)
-
-        elif isinstance(widget, customtkinter.CTkTabview):
-            block_buttons(widget, state)
-        elif isinstance(widget, customtkinter.CTkFrame):
+        elif isinstance(widget, customtkinter.CTkTabview) or isinstance(widget, customtkinter.CTkFrame):
             block_buttons(widget, state)
 
 
-def valid_params(email: str, password: str) -> bool:
-    if not email or not password:  # if are not filled up
-        return False
-
-    # "~" must not be inside email and password
+def valid_params(email: str, password: str) -> str:
+    if not email or not password:
+        return "An entry was left unfilled"
     if "~" in "".join([email, password]):
-        # let user know somehow
-        return False
-
-    if len(password) < 3:  # too short
-        # let user know
-        return False
-
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):  # invalid email
-        return False
-
-    return True
+        return "Invalid character '~' in one of the entries"
+    if len(password) < 3:
+        return "Password is too short"
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return "Invalid email address"
+    return "OK"
 
 
 class AppGUI(customtkinter.CTk):
     def __init__(self, socket=None, cmd_q=None, receiver=None, **kwargs):
         super().__init__(**kwargs)
-
+        self.logger = None
         self.connected = False
         self.role = False
         self.logged_in = False
-        self.geometry('650x450')
+        self.geometry('700x500')
+        self.minsize(500, 400)
 
-        # get params; might change it from being in kwargs
+        self.logs_textbox = None
+        self.write = 0
+
         self.socket = socket
         self.commands_queue = cmd_q
         self.receiver = receiver
-        # self.login()  # start with login; maybe let vpn_client.py to decide
 
-    def login(self):  # not finished
+        self.bind("<Configure>", self.update_dynamic_layout)  # 🔹 Update layout on resize
+        self.dynamic_elements = {}
+
+    def login(self):
         def signin_btn(chosen):
-            """
+            error_label.configure(text="")
 
-            :param chosen:  "signup" or "login"
-            """
-            block_buttons(tabs)  # block first
-
-            # email and password checks are required, here and in the server
-            # print("password:", password_entry.get())
+            block_buttons(tabs)
             email = email_entry.get()
             password = password_entry.get()
 
-            if not valid_params(email, password):  # client's side
+            check = valid_params(email, password)
+            if check != "OK":
                 print("invalid email or password")
-                block_buttons(tabs, "normal")  # unblock buttons
+                error_label.configure(text=check)
+                block_buttons(tabs, "normal")
                 return
 
-            # set up msg
             data = f"{email}~{password}"
             msg = connect_protocol.create_msg(data, chosen)
-            # send over to server
             self.socket.send(msg)
             cmd, msg = self.receiver.get_thread_data(self.socket)
 
             if cmd != "success":
-                print("reason:", msg)  # don't print it in terminal, show it in the GUI
-                block_buttons(tabs, "normal")  # unblock buttons
+                print("reason:", msg)
+                error_label.configure(text=f"{chosen} failed: {msg}")
+                block_buttons(tabs, "normal")
                 return
 
             self.role = msg
-
-            # change to main
             self.logged_in = True
-            self.clear_window()  # clear window first
+            self.clear_window()
             self.main()
 
+        # Initialize properties for login state.
         self.role = None
+        self.logs_textbox = None
+        self.write = 0
 
+        # Configure the grid so that the main window expands nicely.
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=0)
+
+        # Create the TabView for the buttons.
         tabs = customtkinter.CTkTabview(self)
-        tabs.pack(pady=10)
+        tabs.grid(row=0, column=0, sticky="nsew", padx=20, pady=(20, 10))
 
-        login_tab = tabs.add("log in")
-        signin_tab = tabs.add("sign up")
+        # Create two tabs: one for "Log In" and one for "Sign Up".
+        login_tab = tabs.add("Log In")
+        signin_tab = tabs.add("Sign Up")
 
-        written_password = StringVar()
-        email_entry = customtkinter.CTkEntry(self, placeholder_text="Enter your Email...")
-        password_entry = customtkinter.CTkEntry(self,  # textvariable=written_password,
-                                                show="*",
-                                                placeholder_text="Enter your password...")
+        # Use grid configuration for each tab (only one widget per tab here).
+        for tab in (login_tab, signin_tab):
+            tab.grid_columnconfigure(0, weight=1)
+            tab.grid_rowconfigure(0, weight=1)
 
-        email_entry.pack(pady=15)
-        password_entry.pack(pady=20)
+        # Create a separate frame in the root window for the shared entry fields.
+        entries_frame = customtkinter.CTkFrame(self)
+        entries_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=(10, 20))
+        # Configure the entries_frame so each column expands.
+        entries_frame.grid_columnconfigure(0, weight=1)
+        entries_frame.grid_columnconfigure(1, weight=1)
+
+        # Create the shared email and password entry fields.
+        email_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your Email...")
+        email_entry.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+
+        password_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your password...", show="*")
+        password_entry.grid(row=0, column=1, sticky="ew", padx=10, pady=10)
+
+        # Label for displaying errors
+        error_label = customtkinter.CTkLabel(entries_frame, text="", text_color="red")
+        error_label.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 10))
 
         login_submit = customtkinter.CTkButton(login_tab, text="Log In", command=lambda: signin_btn("login"))
-        login_submit.pack(pady=10)
+        login_submit.place(relx=0.5, rely=0.4, anchor="center")
 
-        signin_submit = customtkinter.CTkButton(signin_tab, text="Sign In", command=lambda: signin_btn("signup"))
-        signin_submit.pack(pady=10)
+        signin_submit = customtkinter.CTkButton(signin_tab, text="Sign Up", command=lambda: signin_btn("signup"))
+        signin_submit.place(relx=0.5, rely=0.4, anchor="center")
 
     def main(self):
         print("in main")
 
-        # self.clear_window() # clear windows outside of these functions
         tabs = customtkinter.CTkTabview(self)
-        tabs.pack(pady=10)
+        tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)  # 🔹 Post-login layout
+        self.dynamic_elements["tabs"] = tabs
+        self.dynamic_elements["context"] = "main"
 
         main_tab = tabs.add("Main")
+        logs_tab = tabs.add("Logs")
         user_tab = tabs.add("Settings")
 
-        # main buttons/functions
-        connect_btn = customtkinter.CTkButton(main_tab, text="Connnect",
+        connect_btn = customtkinter.CTkButton(main_tab, text="Connect",
                                               command=lambda: self.middle_function("connect", tabs))
-        disconnect_btn = customtkinter.CTkButton(main_tab, text="Disconnnect",
+        disconnect_btn = customtkinter.CTkButton(main_tab, text="Disconnect",
                                                  command=lambda: self.middle_function("disconnect", tabs))
         change_btn = customtkinter.CTkButton(main_tab, text="Change",
                                              command=lambda: self.middle_function("change", tabs))
+
+        connect_btn.place(x=40, y=50)
+        disconnect_btn.place(x=40, y=120)
+        change_btn.place(x=40, y=190)
+
+        self.logs_textbox = customtkinter.CTkTextbox(logs_tab, state="disabled",
+                                                     activate_scrollbars=True)
+        self.logs_textbox.configure(font=("Helvetica", 14))  # 🔹 Larger font
+        self.logs_textbox.place(relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75)  # 🔹 Resizable
+        self.dynamic_elements["logs_textbox"] = self.logs_textbox
+
+        s_n_c = customtkinter.CTkButton(logs_tab, command=lambda: self.enable_disable(s_n_c), text="Write packets")
+        delete_btn = customtkinter.CTkButton(logs_tab, command=self.clear_textbox, text="Clear")
+
+        delete_btn.place(relx=0.75, rely=0.85, anchor="e")
+        s_n_c.place(relx=0.25, rely=0.85, anchor="w")
+
+        self.logger = logging.getLogger('vpn_logger')
+        self.logger.setLevel(logging.DEBUG)
+        handler = TextboxHandler(self)
+        formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s',
+                                      datefmt="%Y-%m-%d %H:%M:%S")
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+
         logout_btn = customtkinter.CTkButton(user_tab, text="Log out",
                                              command=lambda: self.middle_function("logout", tabs))
-
-        connect_btn.pack(pady=15, padx=25)
-        disconnect_btn.pack(pady=15, padx=15)
-        change_btn.pack(pady=15, padx=5)
-        logout_btn.pack(pady=15, padx=35)
+        logout_btn.place(relx=0.5, rely=0.5, anchor="center")
 
     def middle_function(self, cmd, tabs):
-        """Pass commands from the GUI to the commands_queue"""
-        if cmd == "connect":  # trying to connect in case of already connected
-            if self.connected:
-                print("Already connected")
-                return
-
-        # start blocking
-        print("start block")
+        if cmd == "connect" and self.connected:
+            print("Already connected")
+            return
         block_buttons(tabs)
-        print("end block")
-
         self.commands_queue.put((cmd, self.socket))
+
+    def enable_disable(self, btn):
+        commands = ["Write packets", "Don't write packets"]
+        self.write = 1 - self.write
+        btn.configure(text=commands[self.write])
+
+    def clear_textbox(self):
+        if self.logs_textbox:
+            self.logs_textbox.configure(state="normal")
+            self.logs_textbox.delete(0.0, "end")
+            self.logs_textbox.configure(state="disabled")
+
+    def add_to_textbox(self, msg):
+        if self.logs_textbox:
+            if "pkt_log" in msg:
+                if not self.write:
+                    return
+                msg = msg[0:-7]
+            self.logs_textbox.configure(state="normal")
+            self.logs_textbox.insert("end", f"{msg}\n")
+            self.logs_textbox.configure(state="disabled")
+            self.logs_textbox.see("end")
 
     def unblock_buttons(self):
         block_buttons(self, "normal")
@@ -155,6 +215,23 @@ class AppGUI(customtkinter.CTk):
     def clear_window(self):
         for widget in self.winfo_children():
             widget.destroy()
+
+    def update_dynamic_layout(self, event=None):
+        """🔹 Adjust widgets based on screen size and login state"""
+        if "tabs" not in self.dynamic_elements:
+            return
+
+        tabs = self.dynamic_elements["tabs"]
+        context = self.dynamic_elements["context"]
+
+        if context == "login":
+            tabs.place(relx=0.05, rely=0.15, relwidth=0.9, relheight=0.7)
+        elif context == "main":
+            tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)
+            if "logs_textbox" in self.dynamic_elements:
+                self.dynamic_elements["logs_textbox"].place(
+                    relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75
+                )
 
 
 if __name__ == '__main__':
