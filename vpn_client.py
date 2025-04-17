@@ -16,13 +16,15 @@ vpn_client = None
 v_interface = None
 current_client_port = None
 current_private_ip = None
-main_server_addr = ("10.0.0.10", 5500)
-adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
+# Global variables
 key = None
 command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
+
+main_server_addr = ("10.0.0.10", 5500)  # main server connection
+adapter_conf.add_static_route(main_server_addr[0], vpn_gui)  # create route exception
 
 
 avail_commands = """
@@ -50,16 +52,23 @@ def block_until_finished_task() -> str:
 
 def handle_logout(skt):
     if not handle_disconnect(skt, "logout"):
-
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "logout"))
 
-    print("start clear")
-    vpn_gui.clear_window()
-    print("end clear")
+    # --- Function to perform the login action in the GUI thread --- #
+    def do_login_gui():
+        vpn_gui.login()  # Now runs in correct thread
 
-    vpn_gui.login()
-    return True
+    # --- Function to perform clear and schedule login --- #
+    def do_clear_and_schedule_login_gui():
+        vpn_gui.clear_window()  # Now runs in correct thread
+        # Schedule the login() to run AFTER clear_window finishes
+        vpn_gui.after(10, do_login_gui)  # Use small delay (10ms) or 0
+
+    # --- Schedule the first step (clear) in the main GUI thread --- #
+    vpn_gui.after(0, do_clear_and_schedule_login_gui)
+
+    return True  # Indicate command was processed
 
 
 def handle_exit(skt):
@@ -87,14 +96,16 @@ def handle_connect(skt) -> bool:
         port = random.randint(50600, 54000)
 
     skt.send(connect_protocol.create_msg(str(port), "connect"))
-    print("sent to server request")
+    vpn_gui.logger.debug("sent to server request connect")
 
     cmd, msg = client_handler.get_thread_data(skt=skt, block=40)
     if cmd == "connect_0":
         print("Connection refused:", msg)
+        vpn_gui.logger.info("Connection refused: " + msg)
         return False
     if cmd != "connect_1":
         print("Protocol error:", cmd, msg)
+        vpn_gui.logger.error(f"Protocol error: {cmd} {msg}")
         return False
 
     # Parse server response
@@ -102,7 +113,7 @@ def handle_connect(skt) -> bool:
 
     try:
         # Create virtual adapter
-        v_interface = adapter_conf.Adapter(ip=vm_ip, vpn_ip=vpn_ip)
+        v_interface = adapter_conf.Adapter(gui=vpn_gui, ip=vm_ip, vpn_ip=vpn_ip)
 
         # ADD DELAY HERE (e.g., 15 seconds)
         print("adapter finished initializing")
@@ -118,7 +129,8 @@ def handle_connect(skt) -> bool:
             virtual_adapter_name=v_interface.name,  # Ensure dynamic name
             initial_vpn_port=int(vpn_port),
             client_port=current_client_port,
-            private_ip=current_private_ip
+            private_ip=current_private_ip,
+            gui=vpn_gui
         )
         vpn_client.open_connection()
         return True
@@ -135,6 +147,8 @@ def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
 
     if not vpn_client:
         print("Already disconnected")
+        if cmd == "dconnect":
+            vpn_gui.logger.warning("Already disconnected")
         return False
 
     # Notify server
@@ -153,6 +167,7 @@ def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
     current_client_port = None
     current_private_ip = None
     print("Disconnected successfully")
+    vpn_gui.logger.debug("Disconnected successfully")
     return True
 
 
@@ -161,6 +176,7 @@ def handle_change(skt):
 
     if not vpn_client:
         print("Not connected")
+        vpn_gui.logger.warning("Not connected")
         return False
 
     # Request server change
@@ -169,11 +185,15 @@ def handle_change(skt):
     ))
     cmd, msg = client_handler.get_thread_data(skt)
 
+    vpn_gui.logger.debug("Change server request was sent to the server")
+
     if cmd == "change_0":
         print("Change failed:", msg)
+        vpn_gui.logger.error(f"Change failed: {msg}")
         return False
     if cmd != "change_1":
         print("Protocol error:", cmd, msg)
+        vpn_gui.logger.error(f"Protocol error: {cmd}, {msg}")
         return False
 
     # Parse new server details
@@ -191,7 +211,8 @@ def handle_change(skt):
             virtual_adapter_name=v_interface.name,
             initial_vpn_port=int(new_vpn_port),
             client_port=current_client_port,
-            private_ip=current_private_ip
+            private_ip=current_private_ip,
+            gui=vpn_gui
         )
 
         # Replace old connection
@@ -201,6 +222,7 @@ def handle_change(skt):
         return True
     except Exception as e:
         print("Server change failed:", e)
+        vpn_gui.logger.error(f"Server change failed: {e}")
         return False
 
 
@@ -217,14 +239,16 @@ def server_connection(skt):  # TODO: exchange keys in this function
             thread, msg, ip = msg.split("~")
             print(f"{msg}\tequal threads: {thread == thread.get_native_id()}")
 
+            vpn_gui.logger.warning("VPN server was shutdown, trying to change to another server")
+
             # check if client is still connected to current server
             if vpn_client:
                 if ip == vpn_client.vpn_server_ip:
                     if command_queue.all_tasks_done:  # if no tasks in commands
-                        command_queue.put(("change", skt))
-
                         # block GUI's buttons
                         gui_master.block_buttons(vpn_gui)
+
+                        command_queue.put(("change", skt))
 
 
 def handle_command_queue():
@@ -245,14 +269,18 @@ def handle_command_queue():
             vpn_gui.connected = commands[cmd](args)
 
         if cmd != "connect":
-            commands[cmd](args)
+            status = commands[cmd](args)
+
+        if cmd == "change" and not status:
+            vpn_gui.logger.warning("Failed changing server. Please consider disconnecting from the VPN")
 
         # block might be unnecessary
         if cmd == "exit":
             break
 
         command_queue.task_done()
-        vpn_gui.unblock_buttons()
+        if cmd not in ["logout", "exit"]:
+            vpn_gui.after(0, vpn_gui.unblock_buttons)
 
 
 def wait_for_command_gui(skt):

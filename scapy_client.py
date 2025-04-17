@@ -7,20 +7,21 @@ from scapy.all import sniff, send
 from scapy.arch.windows import get_windows_if_list
 from scapy.layers.inet import IP
 
-import adapter_conf
+import gui_master
 import connect_protocol
 import nat_class
 
 
 class VPNClient:
     def __init__(self, vpn_server_ip: str, virtual_adapter_ip: str, virtual_adapter_name: str,
-                 initial_vpn_port: int, client_port: int, private_ip: str):
+                 initial_vpn_port: int, client_port: int, private_ip: str, gui: gui_master.AppGUI):
         self.vpn_ip = vpn_server_ip
         self.virtual_adapter_ip = virtual_adapter_ip
         self.virtual_adapter_name = virtual_adapter_name
         self.vpn_port = initial_vpn_port  # Will be updated during first connection
         self.my_port = client_port
         self.private_ip = private_ip
+        self.gui = gui
 
         self.active = False
         self.udp_socket = None
@@ -37,10 +38,12 @@ class VPNClient:
                 break
             except KeyboardInterrupt:
                 print("key board interrupt during key exchange")
+                self.gui.logger.error("key board interrupt during key exchange")
                 self.end_connection()
                 return None
             except WindowsError as e:
                 print(f"Connection error: {e}")
+                self.gui.logger.warning(f"Connection error: {e}")
                 continue
             except Exception as e:
                 print(f"Error at key exchange: {e}")
@@ -53,6 +56,7 @@ class VPNClient:
 
         if cmd != "f_conn":
             print(f"First connection failed: {cmd} {data}")
+            self.gui.logger.error(f"First connection failed: {cmd} {data}")
             sock.close()
             return None
 
@@ -67,6 +71,7 @@ class VPNClient:
         self.key = self._first_connection()
         if not self.key:
             print("Failed to establish initial connection")
+            self.gui.logger.error("Failed to establish initial connection")
             return
 
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -80,11 +85,13 @@ class VPNClient:
         self.sniff_thread.start()
         self.receive_thread.start()
         print("VPN connection established")
+        self.gui.logger.debug("VPN connection established")
 
     def end_connection(self):
         """Gracefully shutdown VPN connection"""
         self.active = False
         print("Shutting down VPN connection...")
+        self.gui.logger.debug("Shutting down VPN connection...")
 
         if self.udp_socket:
             self.udp_socket.close()
@@ -95,9 +102,12 @@ class VPNClient:
             self.receive_thread.join()
 
         print("VPN connection terminated")
+        self.gui.logger.debug("VPN connection terminated")
 
     def _send_to_vpn(self, pkt):
         """Encrypt and send packet to VPN server"""
+        self.gui.logger.info(str(pkt) + "pkt_log")  # Log the packet
+
         raw_data = bytes(pkt)
         encrypted = connect_protocol.encrypt(raw_data, self.key)
         checksum = hashlib.md5(encrypted).hexdigest()
@@ -141,11 +151,12 @@ class VPNClient:
             try:
                 sniff(
                     prn=lambda p: self._send_to_vpn(p),  # Function to process packets
+                    filter="ip",
                     lfilter=self._scapy_filter,  # Packet filter, if any
                     iface=name,  # self.virtual_adapter_name,  # Interface name (e.g., "wrgrd")
                     stop_filter=lambda p: not self.active  # Stop when connection ends
                 )
-                print("Successfully started sniffing on the virtual adapter.")
+                # print("Successfully started sniffing on the virtual adapter.")
                 break  # Exit the loop once sniffing starts successfully
             except Exception as e:
                 attempt += 1
@@ -185,6 +196,8 @@ class VPNClient:
 
                 decrypted = connect_protocol.decrypt(encrypted, self.key)
                 pkt = IP(decrypted)
+
+                self.gui.logger.info(str(pkt) + "pkt_log")  # Log the packet
                 # print(f"received packet: {pkt}")
                 send(pkt, iface='Software Loopback Interface 1', verbose=False)
                 # print(f"Self injected packet: {pkt.summary()}")
@@ -196,16 +209,19 @@ class VPNClient:
                     print(f"Receive error: {e}")
                 break
         print("Stopped receiving from VPN server")
+        self.gui.logger.debug("Stopped receiving from VPN server")
 
 
 if __name__ == '__main__':
+    import adapter_conf
+
     v_interface = adapter_conf.Adapter(ip="10.0.0.50", vpn_ip="10.0.0.21")
     #print("name:", f"'{v_interface.name}'", "\tip:", v_interface.ip, "\nwait 15 seconds")
     #print("wait 25")
     #time.sleep(10)
     #print("time is over")
     # Example usage
-    client = VPNClient(
+    client = VPNClient(  # won't work, because GUI is needed as a parameter
         vpn_server_ip="10.0.0.21",
         #virtual_adapter_ip="10.0.0.50",
         virtual_adapter_ip=v_interface.ip,
