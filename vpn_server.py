@@ -7,8 +7,13 @@ from scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
 
-server_ip = "10.0.0.13"
-my_ip = "10.0.0.21"
+# server_ip = "172.29.168.164"
+# my_ip = "172.29.149.44"
+server_ip = "10.0.0.10"
+my_ip = ""
+
+my_private_ip = "10.0.0.11"
+
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
 
@@ -17,7 +22,7 @@ available = list(reversed(ADDRESSES))
 clients = dict()  # v_addr: client_id
 handler = connect_protocol.CommandHandler()  # command waiting list
 # keys = dict()  # client_ip: key
-vpn = OpenServer(my_ip, udp_port, user_amount=len(ADDRESSES))
+vpn = OpenServer(my_private_ip, udp_port, user_amount=len(ADDRESSES), this_server_ip=my_ip)
 on = True
 
 
@@ -50,10 +55,12 @@ def handle_checkup(my_socket, msg):
     elif cmd == "checkup1":  # server was assigned
         _, client_ip, client_port, client_id = msg.split("~")
         client_port = int(client_port)
+
+        # client_ip is the public IP of the client or the private IP if using ZeroTier
         clients[v_addr] = client_id  # save client
 
         # set tcp_port
-        tcp_port = random.randint(udp_port + 1, 6000)
+        tcp_port = random.randint(udp_port + 1, 6000)  # fixme: could collide with other active ports
 
         data = f"{thread_part}~{tcp_port}~{v_addr}"
         my_socket.send(connect_protocol.create_msg(data, "checkup"))
@@ -63,7 +70,7 @@ def handle_checkup(my_socket, msg):
         print(f"here: {vpn.clients}")
         vpn.update_addr()
 
-        threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn]).start()
+        threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn, my_ip]).start()
         return True
     else:  # should never get here
         available.append(v_addr)
@@ -143,7 +150,7 @@ def handle_server(my_socket):
 
 def main():
     my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    atexit.register(handle_shutdown)  # activate on exit
+    atexit.register(handle_shutdown, my_socket)  # activate on exit
 
     my_socket.connect((server_ip, server_port))
     my_socket.settimeout(5)

@@ -1,3 +1,4 @@
+
 from collections import deque
 
 from scapy.layers.inet import IP, UDP, TCP
@@ -27,14 +28,14 @@ def tcp_udp(p):
             return p[UDP]
         elif TCP in p:
             return p[TCP]
-    # print("problems with the transport layer of the packet")
+    print("problems with the transport layer of the packet")
     try:
         return p[UDP]
     except IndexError:
         try:
             return p[TCP]
         except IndexError:
-            # print("problematic packet is:", p)
+            print("problematic packet is:", p)
             return None
 
 
@@ -48,7 +49,7 @@ class ClassNAT:
             self.users_addr = dict()  # dict of allowed users. (IP address: port socket) todo change to defaultdict(int)
         # else:
 
-        self.vpn_ip = my_ip
+        self.vpn_private_ip = my_ip
         # Available NAT ports
         # todo try optimize to use sockets and struct instead of scapy
         # fixme port pool get exhausted early think about a new way to deal with it
@@ -120,7 +121,7 @@ class ClassNAT:
                 self.nat_timeouts[self.nat_table[index][1]] = time.time()
 
             # update sources
-            packet_data[IP].src = self.vpn_ip
+            packet_data[IP].src = self.vpn_private_ip
             tcp_udp(packet_data).sport = self.nat_table[index][1]  # get the public port
 
             # update checksum
@@ -144,7 +145,7 @@ class ClassNAT:
         :return: data, client's ip address
         """
 
-        if data[IP].dst != self.vpn_ip:  # drop packet if destination is not this VPN
+        if data[IP].dst != self.vpn_private_ip:  # drop packet if destination is not this VPN
             return None
 
         # get layer 4 of the packet  (UDP/TCP)
@@ -174,7 +175,8 @@ class ClassNAT:
                 # 2) saving the ports that were lastly cleaned up and for more 60 seconds, if they get here, then they
                 # come back alive (to the nat_table) else they will be permanently deleted.
                 # 3) do solution (1) and raise the amount of the public ports, in port pool. the question is to how much
-                print("need to update nat_table; unmatch connection:", data)
+
+                # print("need to update nat_table; unmatch connection:", data)
                 return None
 
             # client address info

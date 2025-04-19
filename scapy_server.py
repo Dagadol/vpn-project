@@ -8,17 +8,23 @@ import threading
 
 
 class OpenServer:
-    def __init__(self, this_server_ip, server_port, user_amount, clients: dict = None, keys: dict = None):
+    def __init__(self, private_ip, server_port, user_amount, clients: dict = None, keys: dict = None,
+                 this_server_ip: str = ""):
         # default_clients = {"10.0.0.50": ("10.0.0.11", 8800)}  # virtual adapter: (skt.ip, skt.port)
         self.clients = clients  # v_addr: (user_ip, user_port)
         if self.clients is None:
             self.clients = dict()
 
+        if not this_server_ip:
+            self.my_ip = private_ip
+        else:
+            self.my_ip = this_server_ip
+
         # if clients is None. create a value, and enter it the nat class
         # in order to make the nat.users_addr point at self.clients
         #if clients is None:
         #    self.clients["1"] = "2"
-        self.nat = nat_class.ClassNAT(my_ip=this_server_ip, users_amount=user_amount, users=self.clients)
+        self.nat = nat_class.ClassNAT(my_ip=private_ip, users_amount=user_amount, users=self.clients)
         #del clients["1"]
 
         self.keys = dict()
@@ -44,7 +50,7 @@ class OpenServer:
             self.t_cleanup = threading.Thread(target=self.nat.cleanup_nat_table, daemon=True)
 
             self.skt = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.skt.bind(("0.0.0.0", self.udp_port))
+            self.skt.bind((self.my_ip, self.udp_port))
             self.skt.settimeout(5)
 
             # start threads
@@ -112,8 +118,8 @@ class OpenServer:
                 data, addr = self.skt.recvfrom(65535)  # receive from client through udp socket
             except socket.timeout:
                 continue
-
             pkt = self.valid(data, addr[0])
+            # print(f"pkt received: {pkt}")
             if pkt:
                 new_pkt = self.nat.udp_recv(pkt, addr)
 
@@ -125,6 +131,7 @@ class OpenServer:
                     print("invalid packet:", pkt)
 
     def forward_to_client(self, pkt):
+        # print(f"pkt from internet {pkt}")
         updated_pkt = self.nat.internet_recv(pkt)
         if updated_pkt:
             # print("returning to client:", updated_pkt)
@@ -149,17 +156,18 @@ class OpenServer:
 lock = threading.Lock()
 
 
-def tcp_connection(client_ip, this_port, vpn: OpenServer):
+def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip):
     """
     the first connection between the client and this server, represented in tcp
     exchanging keys, and ports.
+    :param my_ip:
     :param vpn: info holder, server. type OpenServer
     :param this_port: tcp_port
     :param client_ip: client's private IP s
     """
     with lock:
         this_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        this_sock.bind(("0.0.0.0", this_port))  # Bind to all interfaces on `this_port`
+        this_sock.bind((my_ip, this_port))  # Bind the zerotier on `this_port`
         this_sock.listen(1)  # Listen with a backlog of 1 (see below)
 
         while True:
@@ -179,6 +187,14 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer):
             # send over the udp port to the client of this VPN server
             data = connect_protocol.create_msg(str(vpn.udp_port), "f_conn", shared_key)  # f stands for first
             conn.send(data)
+
+            # get user's private IP
+            cmd, msg = connect_protocol.get_msg(conn, shared_key)
+            if cmd != "f_conn":
+                # deal with this error
+                pass
+
+
 
             # Add user
 

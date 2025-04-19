@@ -6,6 +6,8 @@ import db_communication
 import time
 
 this_ip = "10.0.0.10"
+# this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
+
 client_port = 5500
 port_for_vpn = 8888
 list_of_allowed_VPNs = []
@@ -93,11 +95,11 @@ def handle_connect(skt, addr, client_id, port):
     vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
     # Get VPN data while removing this thread id
-    cmd, serer_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
-    _, vpn_port, v_ip = serer_data.split("~")
+    cmd, server_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
+    _, vpn_port, v_ip = server_data.split("~")  # v stands for virtual
 
     # Craft data for client
-    data = f"{server_ip}~{vpn_port}~{v_ip}~{addr}"  # vpn_ip~vpn_port~v_ip~client_ip
+    data = f"{server_ip}~{vpn_port}~{v_ip}"  # vpn_ip~vpn_port~v_ip
     skt.send(connect_protocol.create_msg(data, "connect_1"))
 
 

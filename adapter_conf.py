@@ -73,40 +73,82 @@ def get_default_gateway_grok():
         return None, None
 
 
-def get_interface_index(interface_name):
-    result = subprocess.run(
-        ['netsh', 'interface', 'ip', 'show', 'interface'],
-        capture_output=True,
-        text=True,
-        encoding='utf-8'  # Force UTF-8 decoding
-    )
-    # print("results:", result)
-    lines = result.stdout.splitlines()
-
-    for line in lines:
-        if interface_name in line:
-            parts = line.split()
-            return parts[0]  # The first column is the index
-
-    return None  # If not found
+def find_zerotier_iface():
+    """
+    Search all interfaces for one whose name indicates a ZeroTier adapter.
+    Returns the interface name or None if not found.
+    """
+    for iface in get_windows_if_list():
+        if 'zerotier' in iface["name"].lower():  # might need to verify name is also found in `netsh interface ip conf`
+            return iface["guid"], iface["index"], iface["ips"][1]
+    return None, None, None
 
 
-def add_static_route(static_ip, gui):
-    gateway_ip, default_interface_index = get_default_gateway_grok()
-    if gateway_ip and default_interface_index:
-        print(f"adding a static route to IP at: '{static_ip}'")
-        #gui.logger.debug(f"adding a static route to IP at: '{static_ip}'")
-        subprocess.run(
-            ['route', 'add', static_ip, 'mask', '255.255.255.255', gateway_ip, 'if',
-             str(default_interface_index)],
-            check=True
-        )
+def gw_by_guid(guid):
+    for key in list(netifaces.gateways()):
+        for value in netifaces.gateways()[key]:
+            if isinstance(value, list):
+                for element in value:
+                    if element[1] == guid:
+                        return element[0]  # default gateway of chosen guid
+            elif isinstance(value, tuple):
+                if value[1] == guid:
+                    return value[0]
+    return None  # should never get here
+
+
+def get_private_ip():
+    _, _, ip = find_zerotier_iface()
+    if not ip:
+        return get_physical_private_ip()
+    return ip
+
+
+def get_physical_private_ip():
+    default_guid = netifaces.gateways()["default"][netifaces.AF_INET][1]
+    private_ip = netifaces.ifaddresses(default_guid)[netifaces.AF_INET][0]["addr"]
+    return private_ip
+
+
+def add_static_route(dest_ip: str, gui=None, cmd: str = "add"):
+    """
+    Add a /32 route for dest_ip.  If a ZeroTier interface exists,
+    route via that interface (treating the local ZT IP as gateway).
+    Otherwise use the system default gateway.
+    """
+    # Try ZeroTier first
+    zt_iface, iface_index, gw_ip = find_zerotier_iface()
+    if zt_iface:
+        return  # no need to assign a route***
+
+        # Use local ZT IP as the "gateway" for a direct route
+        addrs = netifaces.ifaddresses(zt_iface).get(netifaces.AF_INET, [])
+        if not addrs:
+            if gui:
+                gui.logger.warning(f"ZeroTier interface {zt_iface} has no IPv4 address; falling back.")
+            gw_ip, iface_idx = get_default_gateway_grok()
+        else:
+            if gw_ip.split(".")[1] != dest_ip.split(".")[1]:
+                gw_ip = gw_by_guid(zt_iface)  # zerotier gateway is not required***
+            if gui:
+                gui.logger.info(f"Routing {dest_ip} via ZeroTier iface {zt_iface} (index {iface_index}).")
     else:
-        print("Warning: Could not determine the default gateway or interface index.")
-        gui.logger.warning("Could not determine the default gateway or interface index.")
+        # No ZT; fall back
+        gw_ip, iface_index = get_default_gateway_grok()
+        if gui:
+            gui.logger.info(f"Routing {dest_ip} via default gateway {gw_ip} (interface index {iface_index}).")
+
+    # Install the static route
+    subprocess.run([
+        'route', cmd, dest_ip,
+        'mask', '255.255.255.255',
+        gw_ip,
+        'if', str(iface_index)
+    ], check=True)
 
 
-def remove_static_route(static_ip):
+def remove_static_route(static_ip, gui=None):
+    """if
     gateway_ip, default_interface_index = get_default_gateway_grok()
     if gateway_ip and default_interface_index:
         print(f"removing static route: '{static_ip}'")
@@ -117,7 +159,8 @@ def remove_static_route(static_ip):
         )
         return True
     else:
-        print("Warning: Could not determine the default gateway or interface index.")
+        print("Warning: Could not determine the default gateway or interface index.")"""
+    add_static_route(dest_ip=static_ip, cmd="delete", gui=gui)
 
 
 def interface_exists(name):
@@ -132,7 +175,7 @@ def interface_exists(name):
 
 
 class Adapter:
-    def __init__(self, gui, ip: str = "", vpn_ip=""):
+    def __init__(self, gui=None, ip: str = "", vpn_ip=""):
         self.gui = gui
         self.ip = ip
         self.vpn_ip = vpn_ip
@@ -142,7 +185,8 @@ class Adapter:
         # Ensure WireGuard is installed
         self.wireguard_path = r'C:\Program Files\WireGuard\wireguard.exe'
         if not os.path.exists(self.wireguard_path):
-            self.gui.logger.critical("WireGuard is not installed at the expected path.")
+            if self.gui:
+                self.gui.logger.critical("WireGuard is not installed at the expected path.")
             raise FileNotFoundError("WireGuard is not installed at the expected path.")
 
         self.setup_adapter()
@@ -159,7 +203,8 @@ class Adapter:
         print("Checking existing interface...")
         if interface_exists(self.name):
             print(f"Interface '{self.name}' already exists. Removing it first.")  # shouldn't get here
-            self.gui.logger.warning(f"Interface '{self.name}' already exists. Removing it first.")
+            if self.gui:
+                self.gui.logger.warning(f"Interface '{self.name}' already exists. Removing it first.")
             self.delete_adapter()
             time.sleep(2)  # Allow time for removal
 
@@ -167,19 +212,23 @@ class Adapter:
         # Time delay is considered inside the function
 
         print("Assigning static IP...")
-        self.gui.logger.debug("Assigning static IP...")
+        if self.gui:
+            self.gui.logger.debug("Assigning static IP...")
         self.assign_ip()
         time.sleep(1)  # Allow time for IP configuration
 
         print("Configuring routing...")
-        self.gui.logger.debug("Configuring routing...")
+        if self.gui:
+            self.gui.logger.debug("Configuring routing...")
         self.configure_routes()
         print(f"Adapter '{self.name}' is up and running.")
-        self.gui.logger.debug(f"Adapter '{self.name}' is up and running.")
+        if self.gui:
+            self.gui.logger.debug(f"Adapter '{self.name}' is up and running.")
 
         try:
             print("waiting 3 seconds for scapy to notice")
-            self.gui.logger.debug("waiting 3 seconds for scapy to notice")
+            if self.gui:
+                self.gui.logger.debug("waiting 3 seconds for scapy to notice")
             time.sleep(1)
         except KeyboardInterrupt:
             print("keyboard Interrupt, closing adapter")
@@ -207,7 +256,8 @@ class Adapter:
         try:
             subprocess.run([self.wireguard_path, '/installtunnelservice', file_path], check=True)
             print("wait 5 seconds")
-            self.gui.logger.debug("waiting 5 seconds for Windows to notice")
+            if self.gui:
+                self.gui.logger.debug("waiting 5 seconds for Windows to notice")
             time.sleep(5)
             print(f"WireGuard adapter '{self.name}' installed successfully.")
 
@@ -227,19 +277,22 @@ class Adapter:
         )
 
     def assign_new_vpn(self, vpn_ip):
-        self.gui.logger.debug(f"Updating new VPN route")
+        if self.gui:
+            self.gui.logger.debug(f"Updating new VPN route")
         remove_static_route(self.vpn_ip)  # removing old VPN route
 
         self.vpn_ip = vpn_ip  # assign the new vpn ip into the public variable
         add_static_route(self.vpn_ip, self.gui)  # create new route to the new VPN
-        self.gui.logger.debug(f"Finished updating new VPN route")
+        if self.gui:
+            self.gui.logger.debug(f"Finished updating new VPN route")
 
     def configure_routes(self):
         """Configures routing rules for the virtual adapter."""
         interface_index = get_index_scapy(self.name)
         if interface_index is None:
             print("Error: Could not find interface index. Routing setup aborted.")
-            self.gui.logger.error("Could not find interface index. Routing setup aborted.")
+            if self.gui:
+                self.gui.logger.error("Could not find interface index. Routing setup aborted.")
             return
 
         subprocess.run(
@@ -254,12 +307,13 @@ class Adapter:
         """Removes the WireGuard virtual adapter."""
         subprocess.run([self.wireguard_path, "/uninstalltunnelservice", self.name], check=True)
         print(f"WireGuard adapter '{self.name}' was deleted.")
-        self.gui.logger.debug(f"WireGuard adapter '{self.name}' was deleted.")
+        if self.gui:
+            self.gui.logger.debug(f"WireGuard adapter '{self.name}' was deleted.")
         if self.vpn_ip:
-            remove_static_route(self.vpn_ip)
+            remove_static_route(self.vpn_ip, self.gui)
 
 
 # Test
 if __name__ == "__main__":
     print("creating the adapter")
-    adapter = Adapter(ip="10.0.0.50", vpn_ip="10.0.0.21")
+    adapter = Adapter(ip="10.2.0.1", vpn_ip="172.29.149.44")

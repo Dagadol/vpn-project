@@ -10,17 +10,18 @@ from scapy.layers.inet import IP
 import gui_master
 import connect_protocol
 import nat_class
+import adapter_conf
 
 
 class VPNClient:
     def __init__(self, vpn_server_ip: str, virtual_adapter_ip: str, virtual_adapter_name: str,
-                 initial_vpn_port: int, client_port: int, private_ip: str, gui: gui_master.AppGUI):
+                 initial_vpn_port: int, client_port: int, gui: gui_master.AppGUI):
         self.vpn_ip = vpn_server_ip
         self.virtual_adapter_ip = virtual_adapter_ip
         self.virtual_adapter_name = virtual_adapter_name
         self.vpn_port = initial_vpn_port  # Will be updated during first connection
         self.my_port = client_port
-        self.private_ip = private_ip
+        self.private_ip = adapter_conf.get_private_ip()  # private_ip
         self.gui = gui
 
         self.active = False
@@ -32,9 +33,16 @@ class VPNClient:
     def _first_connection(self) -> bytes | None:
         """Establish initial TCP connection and perform key exchange"""
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print(f"my ip: '{self.private_ip}' to port: {self.vpn_port}")
+        # my_sock.bind((self.private_ip, self.vpn_port))
+        # my_sock.listen(1)
         while True:
             try:
                 sock.connect((self.vpn_ip, self.vpn_port))
+                # sock, addr = my_sock.accept()
+                # if addr[0] != self.vpn_ip:
+                #     sock.close()
+                #     continue
                 break
             except KeyboardInterrupt:
                 print("key board interrupt during key exchange")
@@ -62,6 +70,19 @@ class VPNClient:
 
         # Update with negotiated port from server
         self.vpn_port = int(data)
+
+        # check if using ZeroTier
+        # IPs wouldn't match in case of ZeroTier is in use
+        # self.private_ip is zerotier then the physical_
+        temp_private_ip = adapter_conf.get_physical_private_ip()
+        if self.private_ip != temp_private_ip:
+            data = f"true~{temp_private_ip}"  # uses ZeroTier
+        else:
+            data = f"false~{temp_private_ip}"  # Doesn't use ZeroTier
+        # in both cases the VPN server needs the client's private IP
+        # because to verify the packets
+        sock.send(connect_protocol.create_msg(data, "f_conn", key=shared_key))
+
         sock.close()
         return shared_key
 
@@ -214,29 +235,36 @@ class VPNClient:
 
 if __name__ == '__main__':
     import adapter_conf
+    import gui_master
 
-    v_interface = adapter_conf.Adapter(ip="10.0.0.50", vpn_ip="10.0.0.21")
+    test_gui = gui_master.AppGUI()
+    test_gui.main()
+
+    v_interface = adapter_conf.Adapter(ip="10.2.0.1", vpn_ip="172.29.149.44")
     #print("name:", f"'{v_interface.name}'", "\tip:", v_interface.ip, "\nwait 15 seconds")
     #print("wait 25")
     #time.sleep(10)
     #print("time is over")
+    test_gui.main()
     # Example usage
     client = VPNClient(  # won't work, because GUI is needed as a parameter
-        vpn_server_ip="10.0.0.21",
+        vpn_server_ip="172.29.149.44",
         #virtual_adapter_ip="10.0.0.50",
         virtual_adapter_ip=v_interface.ip,
         #virtual_adapter_name="wrgrd",
         virtual_adapter_name=v_interface.name,
-        initial_vpn_port=5123,
+        initial_vpn_port=52001,
         client_port=8800,
-        private_ip="10.0.0.13"
+        private_ip="172.29.168.164",
+        gui=test_gui
     )
 
-    try:
-        client.open_connection()
-        # Keep main thread alive while connection is active
-        while client.active:
-            threading.Event().wait(1)
-    except KeyboardInterrupt:
-        client.end_connection()
-        v_interface.delete_adapter()
+    client.open_connection()
+    test_gui.mainloop()
+    # try:
+    #     # Keep main thread alive while connection is active
+    #     while client.active:
+    #         threading.Event().wait(1)
+    # except KeyboardInterrupt:
+    client.end_connection()
+    v_interface.delete_adapter()

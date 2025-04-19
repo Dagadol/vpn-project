@@ -15,7 +15,7 @@ import gui_master
 vpn_client = None
 v_interface = None
 current_client_port = None
-current_private_ip = None
+# current_private_ip = None
 
 # Global variables
 key = None
@@ -24,7 +24,9 @@ client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
 main_server_addr = ("10.0.0.10", 5500)  # main server connection
-adapter_conf.add_static_route(main_server_addr[0], vpn_gui)  # create route exception
+# main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
+
+adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
 
 avail_commands = """
@@ -62,6 +64,7 @@ def handle_logout(skt):
     # --- Function to perform clear and schedule login --- #
     def do_clear_and_schedule_login_gui():
         vpn_gui.clear_window()  # Now runs in correct thread
+        vpn_gui.logged_in = False
         # Schedule the login() to run AFTER clear_window finishes
         vpn_gui.after(10, do_login_gui)  # Use small delay (10ms) or 0
 
@@ -78,13 +81,13 @@ def handle_exit(skt):
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "exit"))
 
-    adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
+    # adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
     key = None
     return True
 
 
 def handle_connect(skt) -> bool:
-    global vpn_client, v_interface, current_client_port, current_private_ip
+    global vpn_client, v_interface, current_client_port
 
     if vpn_client:
         print("Already connected")
@@ -109,7 +112,7 @@ def handle_connect(skt) -> bool:
         return False
 
     # Parse server response
-    vpn_ip, vpn_port, vm_ip, my_ip = msg.split("~")
+    vpn_ip, vpn_port, vm_ip = msg.split("~")
 
     try:
         # Create virtual adapter
@@ -120,7 +123,7 @@ def handle_connect(skt) -> bool:
         # time.sleep(10)  # Critical for OS to recognize the interface
 
         current_client_port = port
-        current_private_ip = my_ip
+        # current_private_ip = adapter_conf.get_private_ip()
 
         # Create and start VPN client
         vpn_client = scapy_client.VPNClient(
@@ -129,7 +132,6 @@ def handle_connect(skt) -> bool:
             virtual_adapter_name=v_interface.name,  # Ensure dynamic name
             initial_vpn_port=int(vpn_port),
             client_port=current_client_port,
-            private_ip=current_private_ip,
             gui=vpn_gui
         )
         vpn_client.open_connection()
@@ -143,7 +145,7 @@ def handle_connect(skt) -> bool:
 
 
 def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
-    global vpn_client, v_interface, current_client_port, current_private_ip
+    global vpn_client, v_interface, current_client_port
 
     if not vpn_client:
         print("Already disconnected")
@@ -165,7 +167,6 @@ def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
     v_interface = None
 
     current_client_port = None
-    current_private_ip = None
     print("Disconnected successfully")
     vpn_gui.logger.debug("Disconnected successfully")
     return True
@@ -211,7 +212,6 @@ def handle_change(skt):
             virtual_adapter_name=v_interface.name,
             initial_vpn_port=int(new_vpn_port),
             client_port=current_client_port,
-            private_ip=current_private_ip,
             gui=vpn_gui
         )
 
