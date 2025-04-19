@@ -1,4 +1,3 @@
-from tkinter import *
 import customtkinter
 import re  # regex
 import logging
@@ -39,20 +38,20 @@ class AppGUI(customtkinter.CTk):
     def __init__(self, socket=None, cmd_q=None, receiver=None, **kwargs):
         super().__init__(**kwargs)
         self.logger = None
-        self.connected = False
-        self.role = False
-        self.logged_in = False
+        self.connected = False  # connected to a VPN server
+        self.role = False  # False if not admin True if admin
+        self.logged_in = False  # after the login screen
         self.geometry('700x500')
         self.minsize(500, 400)
 
         self.logs_textbox = None
-        self.write = 0
+        self.write = 0  # bool of True or False represented in 1 and 0
 
         self.socket = socket
         self.commands_queue = cmd_q
         self.receiver = receiver
 
-        self.bind("<Configure>", self.update_dynamic_layout)  # 🔹 Update layout on resize
+        self.bind("<Configure>", self.update_dynamic_layout)  # Update layout on resize
         self.dynamic_elements = {}
 
     def login(self):
@@ -90,6 +89,7 @@ class AppGUI(customtkinter.CTk):
         self.role = None
         self.logs_textbox = None
         self.write = 0
+        self.dynamic_elements["context"] = "login"
 
         # Configure the grid so that the main window expands nicely.
         self.grid_columnconfigure(0, weight=1)
@@ -99,6 +99,7 @@ class AppGUI(customtkinter.CTk):
         # Create the TabView for the buttons.
         tabs = customtkinter.CTkTabview(self)
         tabs.grid(row=0, column=0, sticky="nsew", padx=20, pady=(20, 10))
+        self.dynamic_elements["tabs"] = tabs
 
         # Create two tabs: one for "Log In" and one for "Sign Up".
         login_tab = tabs.add("Log In")
@@ -137,7 +138,7 @@ class AppGUI(customtkinter.CTk):
         print("in main")
 
         tabs = customtkinter.CTkTabview(self)
-        tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)  # 🔹 Post-login layout
+        tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)  # Post-login layout
         self.dynamic_elements["tabs"] = tabs
         self.dynamic_elements["context"] = "main"
 
@@ -158,8 +159,8 @@ class AppGUI(customtkinter.CTk):
 
         self.logs_textbox = customtkinter.CTkTextbox(logs_tab, state="disabled",
                                                      activate_scrollbars=True)
-        self.logs_textbox.configure(font=("Helvetica", 14))  # 🔹 Larger font
-        self.logs_textbox.place(relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75)  # 🔹 Resizable
+        self.logs_textbox.configure(font=("Helvetica", 14))  # Larger font
+        self.logs_textbox.place(relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75)  # Resizable
         self.dynamic_elements["logs_textbox"] = self.logs_textbox
 
         s_n_c = customtkinter.CTkButton(logs_tab, command=lambda: self.enable_disable(s_n_c), text="Write packets")
@@ -217,18 +218,22 @@ class AppGUI(customtkinter.CTk):
             widget.destroy()
 
     def update_dynamic_layout(self, event=None):
-        """🔹 Adjust widgets based on screen size and login state"""
+        """Adjust widgets based on screen size and login state"""
         if "tabs" not in self.dynamic_elements:
             return
 
         tabs = self.dynamic_elements["tabs"]
         context = self.dynamic_elements["context"]
 
-        if context == "login":
-            tabs.place(relx=0.05, rely=0.15, relwidth=0.9, relheight=0.7)
-        elif context == "main":
+        if context == "login" and not self.logged_in:
+            # In login: we’re using grid, so tweak row weights
+            # to give ~70% of height to the tabs (row 0)
+            # and ~30% to the entries (row 1).
+            self.grid_rowconfigure(0, weight=7)
+            self.grid_rowconfigure(1, weight=3)
+        elif context == "main" and self.logged_in:
             tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)
-            if "logs_textbox" in self.dynamic_elements:
+            if "logs_textbox" in self.dynamic_elements.keys():
                 self.dynamic_elements["logs_textbox"].place(
                     relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75
                 )
