@@ -1,7 +1,6 @@
 import threading
 import socket
 import random
-import atexit
 import psutil  # used for calculating load
 from scapy_server import OpenServer, tcp_connection
 import connect_protocol
@@ -9,10 +8,10 @@ import connect_protocol
 
 # server_ip = "172.29.168.164"
 # my_ip = "172.29.149.44"
-server_ip = "10.0.0.10"
+server_ip = "10.0.0.18"
 my_ip = ""
 
-my_private_ip = "10.0.0.11"
+my_private_ip = "10.0.0.18"
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -113,7 +112,7 @@ def handle_shutdown(skt):
     """
     global on
     on = False
-    print("bye world")
+    print("Bye World!")
     handler.turn_off()  # set server closed
     vpn.close_conn()
 
@@ -150,7 +149,6 @@ def handle_server(my_socket):
 
 def main():
     my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    atexit.register(handle_shutdown, my_socket)  # activate on exit
 
     my_socket.connect((server_ip, server_port))
     my_socket.settimeout(5)
@@ -161,8 +159,12 @@ def main():
 
     threading.Thread(target=handler.listen_for_commands, args=[my_socket]).start()
     print("listening for commands")
-
-    handle_server(my_socket)
+    try:
+        handle_server(my_socket)
+    except (KeyboardInterrupt, Exception):
+        print("VPN server is shutting down")
+    finally:
+        handle_shutdown(my_socket)
 
 
 if __name__ == '__main__':
