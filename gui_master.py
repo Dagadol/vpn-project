@@ -90,6 +90,8 @@ class AppGUI(customtkinter.CTk):
         self.logs_textbox = None
         self.write = 0
         self.dynamic_elements["context"] = "login"
+        if "logs_textbox" in self.dynamic_elements.keys():  # DELETE ME LATER
+            del self.dynamic_elements["logs_textbox"]
 
         # Configure the grid so that the main window expands nicely.
         self.grid_columnconfigure(0, weight=1)
@@ -218,24 +220,25 @@ class AppGUI(customtkinter.CTk):
             widget.destroy()
 
     def update_dynamic_layout(self, event=None):
-        """Adjust widgets based on screen size and login state"""
-        if "tabs" not in self.dynamic_elements:
-            return
+        """Adjust widgets based on screen size and login state."""
+        ctx = self.dynamic_elements.get("context")
 
-        tabs = self.dynamic_elements["tabs"]
-        context = self.dynamic_elements["context"]
-
-        if context == "login" and not self.logged_in:
-            # In login: we’re using grid, so tweak row weights
-            # to give ~70% of height to the tabs (row 0)
-            # and ~30% to the entries (row 1).
+        # LOGIN SCREEN: ~70% height to tabs (row 0), ~30% to entries (row 1)
+        if ctx == "login" and not self.logged_in:
             self.grid_rowconfigure(0, weight=7)
             self.grid_rowconfigure(1, weight=3)
-        elif context == "main" and self.logged_in:
-            tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)
-            if "logs_textbox" in self.dynamic_elements.keys():
-                self.dynamic_elements["logs_textbox"].place(
-                    relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75
+
+        # MAIN SCREEN: use place(), but only if widgets still exist
+        elif ctx == "main" and self.logged_in:
+            tabs = self.dynamic_elements.get("tabs")
+            if tabs and tabs.winfo_exists():
+                tabs.place(relx=0.05, rely=0.05, relwidth=0.9, relheight=0.9)
+
+            logs_tb = self.dynamic_elements.get("logs_textbox")
+            if logs_tb and logs_tb.winfo_exists():
+                logs_tb.place(
+                    relx=0.5, rely=0.05, anchor="n",
+                    relwidth=0.9, relheight=0.75
                 )
 
 
