@@ -1,10 +1,8 @@
-import socket
 import threading
 from collections import deque, defaultdict
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import random
-import sympy
 import os
 import hashlib
 import time
