@@ -23,7 +23,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.10", 5500)  # main server connection
+main_server_addr = ("10.0.0.18", 5500)  # main server connection
 # main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
 
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
@@ -37,19 +37,6 @@ Change: change vpn server
 Exit: shutdown application
 Else: show list of commands
 """
-
-
-def block_until_finished_task() -> str:
-    global command_queue
-    i = command_queue.unfinished_tasks
-    if not i:
-        return "queue is empty"
-
-    while True:
-        if command_queue.unfinished_tasks < i:
-            return "last task was finished"
-        i = command_queue.unfinished_tasks
-        time.sleep(0.01)
 
 
 def handle_logout(skt):
@@ -81,7 +68,7 @@ def handle_exit(skt):
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "exit"))
 
-    # adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
+    adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
     key = None
     return True
 
@@ -227,7 +214,7 @@ def handle_change(skt):
 
 
 def server_connection(skt):  # TODO: exchange keys in this function
-    global key
+    global key, command_queue
     # first connection:
 
     skt.send(connect_protocol.create_msg(f"from_id:{threading.get_native_id()}", "f_conn"))
@@ -237,18 +224,23 @@ def server_connection(skt):  # TODO: exchange keys in this function
         cmd, msg = client_handler.get_thread_data(skt, threading.get_native_id())
         if cmd == "shutdown":
             thread, msg, ip = msg.split("~")
-            print(f"{msg}\tequal threads: {thread == thread.get_native_id()}")
+            print(f"{msg}\tequal threads: {thread == f"to_id:{threading.get_native_id()}"}")
 
             vpn_gui.logger.warning("VPN server was shutdown, trying to change to another server")
 
             # check if client is still connected to current server
             if vpn_client:
-                if ip == vpn_client.vpn_server_ip:
+                if ip == vpn_client.vpn_ip:
                     if command_queue.all_tasks_done:  # if no tasks in commands
+
                         # block GUI's buttons
                         gui_master.block_buttons(vpn_gui)
-
                         command_queue.put(("change", skt))
+                    else:
+                        vpn_gui.logger.critical("Unable to change server automatically")
+                else:
+                    print(f"fake/wrong IP: '{ip}' correct IP: '{vpn_client.vpn_ip}'")
+                    vpn_gui.logger.warning(f"fake/wrong IP: '{ip}' correct IP: '{vpn_client.vpn_ip}'")
 
 
 def handle_command_queue():
