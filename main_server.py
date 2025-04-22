@@ -5,7 +5,7 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.10"
+this_ip = "10.0.0.18"
 # this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
@@ -13,7 +13,9 @@ port_for_vpn = 8888
 list_of_allowed_VPNs = []
 
 vpn_servers = dict()  # server IP: socket
-client_dict = dict()  # client ID: (socket, thread)
+client_dict = dict()  # {client ID: (socket, thread)}
+# - the thread is used for the client in `server_connection` function
+
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 
 
@@ -172,7 +174,7 @@ def handle_login(skt, addr, client_id):
         cmd, msg = connect_protocol.get_msg(skt)
         if cmd == "break":
             if msg != "timeout error":
-                # suspicious activity
+                # suspicious activity  -  timeout error is the only error acceptable
                 break
             continue
         elif cmd == "exit":
@@ -252,16 +254,17 @@ def handle_client(skt, addr, client_id, client):
         handle_login(skt, addr, client_id)
 
 
-def handle_server_shutdown(msg, vpn_sock):
+def handle_server_shutdown(msg, vpn_ip):
     if msg == "none":
+        print("server without user was disconnected")
         return
 
     clients = msg.split("~")
 
-    vpn_ip = ""
-    for skt, ip in vpn_servers.items():
-        if skt == vpn_sock:
-            vpn_ip = ip
+    # vpn_ip = ""
+    # for skt, ip in vpn_servers.items():
+    #     if skt == vpn_sock:
+    #         vpn_ip = ip
 
     for client in clients:
         if client not in client_dict:
@@ -277,11 +280,11 @@ def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
     while True:
         cmd, msg = server_handler.get_thread_data(skt)
         if cmd == "shutdown":
-            handle_server_shutdown(msg, skt)
+            handle_server_shutdown(msg, vpn_ip)
             print("server saved:", vpn_servers)
             del vpn_servers[vpn_ip]  # forget vpn
-            skt.close()
             stop_event.set()
+            skt.close()
             break
 
 
