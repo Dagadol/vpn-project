@@ -186,6 +186,7 @@ def create_client(v_interface):
 def raise_exception():
     a = 1
     b = 0
+    a.asd()
     c = a/b
     return c
 
@@ -208,4 +209,4 @@ def create_tk():
     print("here")
 
 
-create_tk()
+check_exception()
