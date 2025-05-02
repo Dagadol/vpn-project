@@ -39,8 +39,10 @@ class AppGUI(customtkinter.CTk):
         super().__init__(**kwargs)
         self.logger = None
         self.connected = False  # connected to a VPN server
-        self.role = False  # False if not admin True if admin
+        self.role = None  # False if not admin True if admin
+        self.verified = False  # verified, server send if true.
         self.logged_in = False  # after the login screen
+        self.selected_country = "Any"  # used in main
         self.geometry('700x500')
         self.minsize(500, 400)
 
@@ -80,13 +82,24 @@ class AppGUI(customtkinter.CTk):
                 block_buttons(tabs, "normal")
                 return
 
-            self.role = msg
+            # assign variables for states
+            self.role, self.verified = msg.split("~")  # role~verified
+            self.verified = self.verified == "True"
             self.logged_in = True
+            self.countries = []
+
+            if self.verified:
+                # receive countries
+                cmd, msg = self.receiver.get_thread_data(self.socket)
+                if cmd == "countries":
+                    self.countries = msg.split("~")
+
             self.clear_window()
             self.main()
 
         # Initialize properties for login state.
         self.role = None
+        self.verified = None
         self.logs_textbox = None
         self.write = 0
         self.dynamic_elements["context"] = "login"
@@ -154,6 +167,24 @@ class AppGUI(customtkinter.CTk):
                                                  command=lambda: self.middle_function("disconnect", tabs))
         change_btn = customtkinter.CTkButton(main_tab, text="Change",
                                              command=lambda: self.middle_function("change", tabs))
+
+        if self.countries != "none" and self.countries and self.verified:  # too many checks. first one is most important
+            label = customtkinter.CTkLabel(main_tab, text="Choose Country")
+            label.place(x=200, y=50)
+
+            self.selected_country = self.countries[0]  # default
+
+            def on_country_change(choice):
+                self.selected_country = choice
+                print(f"Selected country updated to: {self.selected_country}")
+
+            country_menu = customtkinter.CTkOptionMenu(
+                main_tab,
+                values=self.countries,
+                command=on_country_change  # gets called automatically on change
+            )
+            country_menu.set(self.selected_country)  # sets default
+            country_menu.place(x=200, y=90)
 
         connect_btn.place(x=40, y=50)
         disconnect_btn.place(x=40, y=120)

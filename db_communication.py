@@ -34,6 +34,7 @@ if __name__ != '__main__':
 
 class Client:
     def __init__(self, email, password: str):
+        self._verified = None
         self.email = email
         self.password = password
         self.role = None
@@ -43,6 +44,15 @@ class Client:
         path = "users.db"
         self.conn = sqlite3.connect(path)
         self.cursor = self.conn.cursor()
+
+    @property
+    def is_verified(self):
+        if self._verified is None:
+            with self.conn:
+                self.cursor.execute("SELECT is_verified FROM clients WHERE user_id=:user_id",
+                                    {"user_id": self._user_id})
+                self._verified = bool(self.cursor.fetchone()[0])
+        return self._verified
 
     def get_role(self):
         """Assume user is logged"""

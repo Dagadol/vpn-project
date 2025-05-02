@@ -73,7 +73,7 @@ def handle_exit(skt):
     return True
 
 
-def handle_connect(skt) -> bool:
+def handle_connect(skt, country: str = "Any") -> bool:
     global vpn_client, v_interface, current_client_port
 
     if vpn_client:
@@ -85,7 +85,7 @@ def handle_connect(skt) -> bool:
     while str(port) in subprocess.run("netstat -n", capture_output=True, text=True, shell=True).stdout:
         port = random.randint(50600, 54000)
 
-    skt.send(connect_protocol.create_msg(str(port), "connect"))
+    skt.send(connect_protocol.create_msg(f"{port}~{country}", "connect"))
     vpn_gui.logger.debug("sent to server request connect")
 
     cmd, msg = client_handler.get_thread_data(skt=skt, block=40)
@@ -165,7 +165,7 @@ def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
     return True
 
 
-def handle_change(skt):
+def handle_change(skt, country: str = "any"):
     global vpn_client, v_interface
 
     if not vpn_client:
@@ -175,7 +175,7 @@ def handle_change(skt):
 
     # Request server change
     skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{vpn_client.my_port}~{v_interface.ip}", "change"
+        f"{vpn_client.vpn_ip}~{vpn_client.my_port}~{v_interface.ip}~{country}", "change"
     ))
     cmd, msg = client_handler.get_thread_data(skt)
 

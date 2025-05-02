@@ -11,7 +11,7 @@ import connect_protocol
 server_ip = "10.0.0.18"
 my_ip = ""
 
-my_private_ip = "10.0.0.18"
+my_private_ip = "10.0.0.20"
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -62,7 +62,7 @@ def handle_checkup(my_socket, msg):
         tcp_port = random.randint(udp_port + 1, 6000)  # fixme: could collide with other active ports
 
         data = f"{thread_part}~{tcp_port}~{v_addr}"
-        my_socket.send(connect_protocol.create_msg(data, "checkup"))
+        my_socket.send(connect_protocol.create_msg(data, "checkup1"))
 
         # add new client
         vpn.clients[v_addr] = (client_ip, client_port)

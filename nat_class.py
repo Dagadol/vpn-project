@@ -146,6 +146,7 @@ class ClassNAT:
         """
 
         if data[IP].dst != self.vpn_private_ip:  # drop packet if destination is not this VPN
+            # print("wrong dest")
             return None
 
         # get layer 4 of the packet  (UDP/TCP)
@@ -176,7 +177,7 @@ class ClassNAT:
                 # come back alive (to the nat_table) else they will be permanently deleted.
                 # 3) do solution (1) and raise the amount of the public ports, in port pool. the question is to how much
 
-                # print("need to update nat_table; unmatch connection:", data)
+                print("need to update nat_table; unmatch connection:", data)
                 return None
 
             # client address info
@@ -205,7 +206,7 @@ class ClassNAT:
             # in order to get these, you can use the function `get_socket_dst` in the server code
             return data  # `data` is in format of scapy packet
 
-        # print("invalid connection")
+        # print(f"invalid connection: {data}")
         return None
 
     def cleanup_nat_table(self):

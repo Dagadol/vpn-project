@@ -10,7 +10,8 @@ this_ip = "10.0.0.18"
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = []
+list_of_allowed_VPNs = {"0.0.0.0": "Any"}  # {VPN IP: country} - any is default for all countries
+# might use API of IP tracker. But manually assigning the country is perfectly fine aswell
 
 vpn_servers = dict()  # server IP: socket
 client_dict = dict()  # {client ID: (socket, thread)}
@@ -19,11 +20,24 @@ client_dict = dict()  # {client ID: (socket, thread)}
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 
 
-def get_fastest_vpn(exception: str = ""):
+def get_fastest_vpn(country_filter: str = "any", exception: str = ""):
+    """
+    get the best server info according to the country filter, exception, relative ping to this server and server load.
+
+    :param country_filter: country that the client wish to connect to. allowed to verified users
+    :param exception: exception is server not to connect, should be the server that the client is connected to
+    :return: best_server, server_thread
+    best_server:
+    "best" server in the country that was specified according to ping relative to server and cpu %.
+
+    server_thread:
+    each server has its own thread everytime a new command is executed (in this case: "checkup").
+    if thread is not specified the command will initiate a new thread.
+    """
     scores = {}  # Store scores for each server
 
     for ip in vpn_servers:
-        if ip == exception:
+        if ip == exception or (country_filter != "any" and country_filter != list_of_allowed_VPNs[ip]):
             continue
 
         this_thread = threading.get_native_id()  # get this thread id
@@ -64,12 +78,12 @@ def get_fastest_vpn(exception: str = ""):
         # Calculate priority score
         score = (0.6 / ping) + (0.3 * space_left) + (0.1 / cpu_load)
         scores[ip] = (score, thread_id)
-        print("score:", scores[ip])
+        # print("score:", scores[ip])
 
     # Select the best server
     best_server = max(scores, key=lambda x: scores[x][0], default=None)  # Get server with the highest score
-    print(best_server)
-    print(scores)
+    print(f"server chosen: {best_server}")
+    # print(scores)
     if not best_server:  # check if got server
         print("no best server")
         return None, None
@@ -85,41 +99,72 @@ def get_fastest_vpn(exception: str = ""):
     return best_server, thread_id
 
 
-def handle_connect(skt, addr, client_id, port):
-    server_ip, thread_id = get_fastest_vpn()
+def handle_connect(skt, addr, client_id, msg, client):
+    port, country = msg.split("~")
+
+    if not (client.is_verified or country == "any"):
+        country = "any"
+    server_ip, thread_id = get_fastest_vpn(country)
 
     if not server_ip:
         skt.send(connect_protocol.create_msg("no server was found", "connect_0"))
         print("no server was found")
         return False
 
+    status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id)
+    if not status:
+        print(f"able to connect: {status}")
+        # notify user
+
+
+def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id):
     data = f"{addr}~{port}~{client_id}"
     vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
-    # Get VPN data while removing this thread id
+    # Get VPN data
     cmd, server_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
     _, vpn_port, v_ip = server_data.split("~")  # v stands for virtual
 
     # Craft data for client
     data = f"{server_ip}~{vpn_port}~{v_ip}"  # vpn_ip~vpn_port~v_ip
-    skt.send(connect_protocol.create_msg(data, "connect_1"))
+
+    # Simple validation
+    if cmd == "checkup1":
+        skt.send(connect_protocol.create_msg(data, "connect_1"))
+        return True
+    elif cmd == "checkup0":
+        print("something happened, VPN rejected")
+        return False
+
+    print(f"false command: {cmd}")
+    return False  # shouldn't get here
 
 
-def handle_change(skt, addr, client_id, msg):
-    connected_server, port, v_addr = msg.split("~")
-    server_ip, thread_id = get_fastest_vpn(exception=connected_server)
+def handle_change(skt, addr, client_id, msg, client):
+    connected_server, port, v_addr, country = msg.split("~")
+
+    if not (client.is_verified or country == "any"):
+        country = "any"
+
+    server_ip, thread_id = get_fastest_vpn(country, exception=connected_server)
 
     if not server_ip:
         skt.send(connect_protocol.create_msg("no server was found", "change_0"))
         return False
 
+
+    status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id)
+    """
     data = f"{addr}~{port}~{client_id}"
     vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
     data = f"{server_ip}~{connect_protocol.get_msg(vpn_servers[server_ip])}"  # vpn_ip~vpn_port~v_ip
     skt.send(connect_protocol.create_msg(data, "change_1"))
-
-    disconnect_vpn_by_ip(connected_server, v_addr)  # disconnect previous server
+    """
+    if status:
+        disconnect_vpn_by_ip(connected_server, v_addr)  # disconnect previous server
+    else:
+        pass  # notify user
 
 
 def disconnect_vpn_by_ip(server_ip, v_addr):
@@ -168,6 +213,7 @@ def try_signup(client) -> bool:
 
 
 def handle_login(skt, addr, client_id):
+    # todo add client_id to db_communication.Client as attribute
     login = False
     this_client = None
     while not login:
@@ -195,20 +241,28 @@ def handle_login(skt, addr, client_id):
             login = try_signup(this_client)
             reason = "user exist already"
 
-        if not login:
+        if not login:  # status (was able to log in/signup)
             data = connect_protocol.create_msg(reason, "fail")
             print("data sent:", data)
             skt.send(data)
 
     if not this_client:
+        """can never get here, okay to delete this statement"""
         # skt.send(connect_protocol.create_msg("error", "fail"))  # might not be needed
         del client_dict[client_id]
         skt.close()
 
     if login and this_client:
-        data = connect_protocol.create_msg(this_client.role, "success")
+        data = connect_protocol.create_msg(f"{this_client.role}~{this_client.is_verified}", "success")
         print("data sent:", data)
         skt.send(data)
+
+        if this_client.is_verified:
+            # send to client the available countries, also possible to send on login
+            countries = "~".join(list(list_of_allowed_VPNs.values()))  # maybe later use json to wrap this
+            countries = "none"
+            skt.send(connect_protocol.create_msg(countries, "countries"))
+
         handle_client(skt, addr, client_id, this_client)
 
 
@@ -239,10 +293,10 @@ def handle_client(skt, addr, client_id, client):
 
         elif cmd == "connect":
             # threading.Thread(target=handle_client, args=[skt, addr[0], client_id, msg]).start()
-            handle_connect(skt, addr[0], client_id, msg)
+            handle_connect(skt, addr[0], client_id, msg, client)
         elif cmd == "change":
             # threading.Thread(target=handle_change, args=[skt, addr[0], client_id, msg])
-            handle_change(skt, addr[0], client_id, msg)
+            handle_change(skt, addr[0], client_id, msg, client)
         elif cmd == "logout":
             logout = True
             if msg != "i want to leave":
@@ -299,12 +353,11 @@ def listen_for_servers():
         vpn_sock, addr = servers_socket.accept()
 
         # check if IP address is valid
-        if list_of_allowed_VPNs:  # if list was created with values
+        if len(list_of_allowed_VPNs) > 1:  # if list was created with values
             if addr[0] not in list_of_allowed_VPNs:
                 vpn_sock.close()
                 continue
 
-        vpn_sock.settimeout(10)
         vpn_sock.send(connect_protocol.create_msg("hello world", "f_conn"))
         print(f"new server connected from: {addr}")
 
@@ -339,7 +392,6 @@ def listen_for_clients():
             continue
 
         thread_msg = f"to_{msg.split("_")[1]}"
-
         client_dict[client_id] = (client_socket, thread_msg)
 
         t = threading.Thread(target=handle_login, args=[client_socket, addr, client_id])

@@ -12,7 +12,7 @@ BASE = 2  # hd base
 FIXED_LEN = 4
 command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
                 "exchange", "f_conn", "test", "vpn_in", "checkup", "checkup0", "checkup1", "shutdown", "remove",
-                "login", "signup", "fail", "success", "logout"]
+                "login", "signup", "fail", "success", "logout", "countries"]
 
 
 class CommandHandler:
@@ -67,12 +67,12 @@ class CommandHandler:
         self.on = False
 
 
-def create_msg(data: str, cmd: str, key=None) -> bytes | None:
+def create_msg(msg: str, cmd: str, key=None) -> bytes | None:
     if key:
-        data = encrypt(data.encode(), key)  # if key is available, encrypt the data; encrypt returns encoded data
+        data = encrypt(msg.encode(), key)  # if key is available, encrypt the data; encrypt returns encoded data
 
     else:  # if with key data is encoded, without key it must also be encoded
-        data = data.encode()
+        data = msg.encode()
 
     # set lengths
     whole_msg_length = str(len(data))
