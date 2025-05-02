@@ -14,7 +14,7 @@ list_of_allowed_VPNs = []
 
 vpn_servers = dict()  # server IP: socket
 client_dict = dict()  # {client ID: (socket, thread)}
-# - the thread is used for the client in `server_connection` function
+# the thread is used for the client in `server_connection` function
 
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 
@@ -31,13 +31,13 @@ def get_fastest_vpn(exception: str = ""):
         # Measure ping
         start_time = time.time()
         vpn_servers[ip].send(connect_protocol.create_msg(f"request~from_id:{this_thread}", "checkup"))
-        # print(f"sent to vpn at {ip}, with {vpn_servers[ip]}")
+        print(f"sent to vpn at {ip}, with {vpn_servers[ip]}")
 
         cmd, msg = server_handler.get_thread_data(vpn_servers[ip], this_thread, 30)
         ping = time.time() - start_time - 2  # Stop measuring. removes 2 to ignore the 2 seconds load calc
-        # print(f"cmd: '{cmd}'\tmsg: {msg}")
+        print(f"cmd: '{cmd}'\tmsg: {msg}")
         if cmd != "checkup":
-            print("cmd:", cmd)
+            print("bad cmd:", cmd)
 
             continue  # Invalid response\Server is full, ignore this server
 
@@ -223,8 +223,8 @@ def handle_client(skt, addr, client_id, client):
         if cmd == "exit":
             if msg != "i want to leave":  # indicates that user is already not connected
                 server_ip, v_addr = msg.split('~')
+                print(f"user connected wants to leave from {server_ip}")
                 disconnect_vpn_by_ip(server_ip, v_addr)  # msg hold the vpn ip
-                print("user wants to leave")
             else:
                 print("user not connected wants to leave")
             del client_dict[client_id]
