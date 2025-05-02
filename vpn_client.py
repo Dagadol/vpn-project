@@ -67,7 +67,7 @@ def handle_exit(skt):
 
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "exit"))
-
+    print("server was notified")
     adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
     key = None
     return True
@@ -124,15 +124,21 @@ def handle_connect(skt) -> bool:
         vpn_client.open_connection()
         return True
     except Exception as e:
-        print("Connection failed:", e)
+        print("Connection failed:", e)  # maybe let server know that connection failed
         if v_interface:
-            v_interface.delete_adapter()
-            v_interface = None
+            if vpn_client:
+                handle_disconnect(skt)
+            else:
+                v_interface.delete_adapter()
+                v_interface = None
+
         return False
 
 
 def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
     global vpn_client, v_interface, current_client_port
+
+    vpn_gui.connected = False
 
     if not vpn_client:
         print("Already disconnected")
@@ -255,9 +261,8 @@ def handle_command_queue():
     while True:
         cmd, args = command_queue.get()
         print("current command:", cmd)
-        if cmd == "disconnect":
-            vpn_gui.connected = False
-        elif cmd == "connect":
+
+        if cmd == "connect":
             vpn_gui.connected = commands[cmd](args)
 
         if cmd != "connect":
@@ -279,8 +284,8 @@ def wait_for_command_gui(skt):
     vpn_gui.socket = skt
     vpn_gui.login()
     vpn_gui.mainloop()
-    print("left program")
     command_queue.put(("exit", skt))
+    print("left program")
 
 
 def main():
@@ -290,7 +295,7 @@ def main():
         # skt.settimeout(10)
         print("Connected to main server")
 
-        t_wait = threading.Thread(target=server_connection, args=[skt])
+        t_wait = threading.Thread(target=server_connection, args=[skt], daemon=True)
         t_wait.start()
 
         while not key:
@@ -302,8 +307,10 @@ def main():
 
         wait_for_command_gui(skt)
 
+        t_command_handler.join()
+        print("all task are done")
+
         client_handler.turn_off()
-        t_wait.join()
 
     print("Connection closed")
 
