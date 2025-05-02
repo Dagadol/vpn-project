@@ -3,6 +3,8 @@ import hashlib
 import threading
 import time
 
+# from scapy.compat import raw
+from scapy.config import conf
 from scapy.all import sniff, send
 from scapy.arch.windows import get_windows_if_list
 from scapy.layers.inet import IP
@@ -10,7 +12,7 @@ from scapy.layers.inet import IP
 import gui_master
 import connect_protocol
 import nat_class
-import adapter_conf
+from adapter_conf import get_private_ip, get_physical_private_ip
 
 
 class VPNClient:
@@ -21,7 +23,7 @@ class VPNClient:
         self.virtual_adapter_name = virtual_adapter_name
         self.vpn_port = initial_vpn_port  # Will be updated during first connection
         self.my_port = client_port
-        self.private_ip = adapter_conf.get_private_ip()  # private_ip
+        self.private_ip = get_private_ip()  # private_ip
         self.gui = gui
 
         self.active = False
@@ -74,7 +76,7 @@ class VPNClient:
         # check if using ZeroTier
         # IPs wouldn't match in case of ZeroTier is in use
         # self.private_ip is zerotier then the physical_
-        temp_private_ip = adapter_conf.get_physical_private_ip()
+        temp_private_ip = get_physical_private_ip()
         if self.private_ip != temp_private_ip:
             data = f"true~{temp_private_ip}"  # uses ZeroTier
         else:
@@ -149,7 +151,6 @@ class VPNClient:
 
     def _receive_from_adapter(self):
         """Sniff packets from the virtual adapter and forward them to the VPN."""
-        from scapy.config import conf
         conf.ifaces.reload()
 
         time.sleep(2)  # After reloading interfaces
@@ -202,7 +203,11 @@ class VPNClient:
     def _receive_from_vpn(self):
         """Receive from VPN server and inject into virtual adapter"""
         print("started VPN receiving")
+        i = 1
+        # raw_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        # raw_sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
         while self.active:
+            i += 1
             try:
                 data, addr = self.udp_socket.recvfrom(65535)
                 # print("received data")
@@ -219,8 +224,21 @@ class VPNClient:
                 pkt = IP(decrypted)
 
                 self.gui.logger.info(str(pkt) + "pkt_log")  # Log the packet
+
                 # print(f"received packet: {pkt}")
+                # raw_sock.sendto(raw(pkt), (self.virtual_adapter_ip, 0))  # doesn't work
+                # raw_sock.sendto(raw(pkt), ("127.0.0.1", 0))  # doesn't work
+                # iface = conf.ifaces.dev_from_index(30)  # doesn't work
+                # iface = "WireGuard Tunnel"  # doesn't work
+                # iface = self.virtual_adapter_name  # doesn't work
+                # iface = conf.ifaces.dev_from_index(1)  # loopback by index -- works with scapy_socket
+                # iface = 'Software Loopback Interface 1'  # works with the scapy_socket
+                # scapy_socket = conf.L3socket(iface=iface)
+                # scapy_socket.send(pkt)
+                # send(pkt, iface=iface, verbose=False)
+
                 send(pkt, iface='Software Loopback Interface 1', verbose=False)
+                # send(pkt, iface=self.virtual_adapter_name, verbose=False)
                 # print(f"Self injected packet: {pkt.summary()}")
 
             except (socket.timeout, ValueError):
@@ -228,7 +246,12 @@ class VPNClient:
             except Exception as e:
                 if self.active:
                     print(f"Receive error: {e}")
-                break
+                    if i == 10:
+                        # from scapy.config import conf
+                        conf.ifaces.reload()
+                        time.sleep(3)
+                else:
+                    break
         print("Stopped receiving from VPN server")
         self.gui.logger.debug("Stopped receiving from VPN server")
 
