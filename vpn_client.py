@@ -23,7 +23,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.18", 5500)  # main server connection
+main_server_addr = ("10.0.0.22", 5500)  # main server connection
 # main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
 
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
@@ -63,17 +63,18 @@ def handle_logout(skt):
 
 def handle_exit(skt):
     global key
+    print("[DEBUG] enter handle_exit")
+    adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
     if not handle_disconnect(skt, "exit"):  # if disconnected
 
         # Notify server
         skt.send(connect_protocol.create_msg("i want to leave", "exit"))
-    print("server was notified")
-    adapter_conf.remove_static_route(main_server_addr[0])  # remove route exception
+    print("[DEBUG] server was notified")
     key = None
     return True
 
 
-def handle_connect(skt, country: str = "Any") -> bool:
+def handle_connect(skt) -> bool:
     global vpn_client, v_interface, current_client_port
 
     if vpn_client:
@@ -85,6 +86,7 @@ def handle_connect(skt, country: str = "Any") -> bool:
     while str(port) in subprocess.run("netstat -n", capture_output=True, text=True, shell=True).stdout:
         port = random.randint(50600, 54000)
 
+    country = vpn_gui.selected_country
     skt.send(connect_protocol.create_msg(f"{port}~{country}", "connect"))
     vpn_gui.logger.debug("sent to server request connect")
 
@@ -161,11 +163,12 @@ def handle_disconnect(skt, cmd: str = "dconnect") -> bool:
 
     current_client_port = None
     print("Disconnected successfully")
-    vpn_gui.logger.debug("Disconnected successfully")
+    if vpn_gui.active:
+        vpn_gui.logger.debug("Disconnected successfully")
     return True
 
 
-def handle_change(skt, country: str = "any"):
+def handle_change(skt):
     global vpn_client, v_interface
 
     if not vpn_client:
@@ -174,6 +177,7 @@ def handle_change(skt, country: str = "any"):
         return False
 
     # Request server change
+    country = vpn_gui.selected_country
     skt.send(connect_protocol.create_msg(
         f"{vpn_client.vpn_ip}~{vpn_client.my_port}~{v_interface.ip}~{country}", "change"
     ))
@@ -282,9 +286,10 @@ def handle_command_queue():
 
 def wait_for_command_gui(skt):
     vpn_gui.socket = skt
+    # vpn_gui.protocol("WM_DELETE_WINDOW", lambda: vpn_gui.on_close(vpn_client))
     vpn_gui.login()
-    vpn_gui.mainloop()
-    command_queue.put(("exit", skt))
+    vpn_gui.mainloop()            # <-- returns as soon as destroy() is called
+    vpn_gui.active = False
     print("left program")
 
 
