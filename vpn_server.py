@@ -9,9 +9,9 @@ import connect_protocol
 # server_ip = "172.29.168.164"
 # my_ip = "172.29.149.44"
 server_ip = "10.0.0.18"
-my_ip = ""
+my_ip = ""  # used for communication for VPN e.g. ZeroTier
 
-my_private_ip = "10.0.0.20"
+my_private_ip = "10.0.0.20"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -43,7 +43,7 @@ def handle_checkup(my_socket, msg):
     data = f"{thread_part}~{space_left}~{load}~from_id:{this_thread}"  # add thread id to the end of data
 
     # send data ASAP
-    my_socket.send(connect_protocol.create_msg(data=data, cmd="checkup"))
+    my_socket.send(connect_protocol.create_msg(msg=data, cmd="checkup"))
 
     # get data back
     cmd, msg = handler.get_thread_data(my_socket, this_thread)
