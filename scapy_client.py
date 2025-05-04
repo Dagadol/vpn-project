@@ -114,18 +114,18 @@ class VPNClient:
         """Gracefully shutdown VPN connection"""
         self.active = False
         print("Shutting down VPN connection...")
-        self.gui.logger.debug("Shutting down VPN connection...")
+        # self.gui.logger.debug("Shutting down VPN connection...")
 
         if self.udp_socket:
             self.udp_socket.close()
 
         if self.sniff_thread:
-            self.sniff_thread.join()
+            self.sniff_thread.join(timeout=5)
         if self.receive_thread:
-            self.receive_thread.join()
+            self.receive_thread.join(timeout=5)
 
         print("VPN connection terminated")
-        self.gui.logger.debug("VPN connection terminated")
+        # self.gui.logger.debug("VPN connection terminated")
 
     def _send_to_vpn(self, pkt):
         """Encrypt and send packet to VPN server"""
