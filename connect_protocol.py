@@ -31,6 +31,7 @@ class CommandHandler:
             cmd, msg = get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
             if cmd == "break":
                 if msg == "connection error":
+                    # TODO: program running it needs to know
                     break
                 if "socket was closed" in msg and self.on:
                     print("OS Error:", msg.split("socket was closed")[1])
@@ -44,7 +45,7 @@ class CommandHandler:
                 thread = -1
 
             self.requests_cmd[thread, skt].append((cmd, msg))
-        print("stopped listening")
+        print(f"stopped listening\tsocket: {skt}")
 
     def get_thread_data(self, skt, this_thread: int = -1, block=5):
         start = time.time()
@@ -127,7 +128,7 @@ def get_msg(skt, key=None):
         print(f"no message was received {e}")
         return "break", "connection error"
     except OSError as e:  # suggests socket was closed
-        return "break", f"socket was closed{e}"
+        return "break", f"socket was closed {e}"
 
 
 def get_prime() -> int:
