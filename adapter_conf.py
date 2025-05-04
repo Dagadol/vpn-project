@@ -4,6 +4,8 @@ import time
 import netifaces
 from scapy.arch.windows import get_windows_if_list
 
+import gui_master
+
 
 def get_index_scapy(name="wrgrd"):
     interfaces = get_windows_if_list()
@@ -116,6 +118,9 @@ def add_static_route(dest_ip: str, gui=None, cmd: str = "add"):
     route via that interface (treating the local ZT IP as gateway).
     Otherwise use the system default gateway.
     """
+    if gui:
+        if not gui.active:  # meaning user chose to exit program
+            gui = False
     # Try ZeroTier first
     zt_iface, iface_index, gw_ip = find_zerotier_iface()
     if zt_iface:
@@ -175,7 +180,7 @@ def interface_exists(name):
 
 
 class Adapter:
-    def __init__(self, gui=None, ip: str = "", vpn_ip=""):
+    def __init__(self, gui: gui_master.AppGUI | None = None, ip: str = "", vpn_ip=""):
         self.gui = gui
         self.ip = ip
         self.vpn_ip = vpn_ip
@@ -307,7 +312,7 @@ class Adapter:
         """Removes the WireGuard virtual adapter."""
         subprocess.run([self.wireguard_path, "/uninstalltunnelservice", self.name], check=True)
         print(f"WireGuard adapter '{self.name}' was deleted.")
-        if self.gui:
+        if self.gui.active:
             self.gui.logger.debug(f"WireGuard adapter '{self.name}' was deleted.")
         if self.vpn_ip:
             remove_static_route(self.vpn_ip, self.gui)
