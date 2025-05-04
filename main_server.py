@@ -5,13 +5,13 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.18"
+this_ip = "10.0.0.22"
 # this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = {"0.0.0.0": "Any"}  # {VPN IP: country} - any is default for all countries
-# might use API of IP tracker. But manually assigning the country is perfectly fine aswell
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.23": "Israel"}  # {VPN IP: country} - Any is default for all countries
+# might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
 client_dict = dict()  # {client ID: (socket, thread)}
@@ -20,7 +20,7 @@ client_dict = dict()  # {client ID: (socket, thread)}
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 
 
-def get_fastest_vpn(country_filter: str = "any", exception: str = ""):
+def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
     """
     get the best server info according to the country filter, exception, relative ping to this server and server load.
 
@@ -37,7 +37,7 @@ def get_fastest_vpn(country_filter: str = "any", exception: str = ""):
     scores = {}  # Store scores for each server
 
     for ip in vpn_servers:
-        if ip == exception or (country_filter != "any" and country_filter != list_of_allowed_VPNs[ip]):
+        if ip == exception or (country_filter != "Any" and country_filter != list_of_allowed_VPNs[ip]):
             continue
 
         this_thread = threading.get_native_id()  # get this thread id
@@ -102,8 +102,8 @@ def get_fastest_vpn(country_filter: str = "any", exception: str = ""):
 def handle_connect(skt, addr, client_id, msg, client):
     port, country = msg.split("~")
 
-    if not (client.is_verified or country == "any"):
-        country = "any"
+    if not (client.is_verified or country == "Any"):
+        country = "Any"
     server_ip, thread_id = get_fastest_vpn(country)
 
     if not server_ip:
@@ -143,15 +143,14 @@ def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id):
 def handle_change(skt, addr, client_id, msg, client):
     connected_server, port, v_addr, country = msg.split("~")
 
-    if not (client.is_verified or country == "any"):
-        country = "any"
+    if not (client.is_verified or country == "Any"):
+        country = "Any"
 
     server_ip, thread_id = get_fastest_vpn(country, exception=connected_server)
 
     if not server_ip:
         skt.send(connect_protocol.create_msg("no server was found", "change_0"))
         return False
-
 
     status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id)
     """
@@ -179,7 +178,7 @@ def disconnect_vpn_by_ip(server_ip, v_addr):
         # let the vpn know the user has disconnect
         vpn_socket.send(connect_protocol.create_msg(f"{v_addr}~{threading_msg}", "remove"))
 
-        cmd, msg = server_handler.get_thread_data(vpn_socket, threading.get_native_id())
+        cmd, msg = server_handler.get_thread_data(vpn_socket, threading.get_native_id(), block=10)
         if cmd != "remove":
             print(f"error at remove: {cmd}, msg: {msg}")
 
@@ -247,7 +246,7 @@ def handle_login(skt, addr, client_id):
             skt.send(data)
 
     if not this_client:
-        """can never get here, okay to delete this statement"""
+        """get here if user breaks/exit"""
         # skt.send(connect_protocol.create_msg("error", "fail"))  # might not be needed
         del client_dict[client_id]
         skt.close()
@@ -259,11 +258,16 @@ def handle_login(skt, addr, client_id):
 
         if this_client.is_verified:
             # send to client the available countries, also possible to send on login
-            countries = "~".join(list(list_of_allowed_VPNs.values()))  # maybe later use json to wrap this
-            countries = "none"
+            countries = ["Any"] + [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
+            countries = "~".join(countries)  # maybe later use json to wrap this
             skt.send(connect_protocol.create_msg(countries, "countries"))
 
         handle_client(skt, addr, client_id, this_client)
+
+
+def disconnect_from_all(client_id):  # todo
+    """tell to all servers to disconnect this ID"""
+    pass
 
 
 def handle_client(skt, addr, client_id, client):
@@ -271,7 +275,11 @@ def handle_client(skt, addr, client_id, client):
     while True:
         cmd, msg = connect_protocol.get_msg(skt)
         if cmd == "break":
-            continue
+            if msg == "timeout error":
+                continue
+            # todo: continue what you wanted to do here
+            cmd = "exit"
+            msg = "force exit"
 
         print("command got:", cmd)
         if cmd == "exit":
@@ -279,8 +287,10 @@ def handle_client(skt, addr, client_id, client):
                 server_ip, v_addr = msg.split('~')
                 print(f"user connected wants to leave from {server_ip}")
                 disconnect_vpn_by_ip(server_ip, v_addr)  # msg hold the vpn ip
-            else:
+            elif msg == "i want to leave":
                 print("user not connected wants to leave")
+            else:
+                disconnect_from_all(client_id)
             del client_dict[client_id]
             skt.close()
             break
@@ -400,7 +410,6 @@ def listen_for_clients():
 
 
 if __name__ == '__main__':
-    # todo: add threads beneath. and apply what need so it will work with the threads in `vpn_server.py`
     t_server = threading.Thread(target=listen_for_servers)
     t_server.start()
     listen_for_clients()
