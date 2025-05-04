@@ -37,6 +37,7 @@ def valid_params(email: str, password: str) -> str:
 class AppGUI(customtkinter.CTk):
     def __init__(self, socket=None, cmd_q=None, receiver=None, **kwargs):
         super().__init__(**kwargs)
+        self.active = True  # True unless user left
         self.logger = None
         self.connected = False  # connected to a VPN server
         self.role = None  # False if not admin True if admin
@@ -53,6 +54,7 @@ class AppGUI(customtkinter.CTk):
         self.commands_queue = cmd_q
         self.receiver = receiver
 
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self.bind("<Configure>", self.update_dynamic_layout)  # Update layout on resize
         self.dynamic_elements = {}
 
@@ -168,7 +170,7 @@ class AppGUI(customtkinter.CTk):
         change_btn = customtkinter.CTkButton(main_tab, text="Change",
                                              command=lambda: self.middle_function("change", tabs))
 
-        if self.countries != "none" and self.countries and self.verified:  # too many checks. first one is most important
+        if self.countries:
             label = customtkinter.CTkLabel(main_tab, text="Choose Country")
             label.place(x=200, y=50)
 
@@ -204,6 +206,11 @@ class AppGUI(customtkinter.CTk):
 
         self.logger = logging.getLogger('vpn_logger')
         self.logger.setLevel(logging.DEBUG)
+
+        # Remove existing handlers
+        if self.logger.hasHandlers():
+            self.logger.handlers.clear()
+
         handler = TextboxHandler(self)
         formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s',
                                       datefmt="%Y-%m-%d %H:%M:%S")
@@ -271,6 +278,14 @@ class AppGUI(customtkinter.CTk):
                     relx=0.5, rely=0.05, anchor="n",
                     relwidth=0.9, relheight=0.75
                 )
+
+    def _on_window_close(self):
+        # enqueue "exit" immediately, then destroy the GUI
+        self.active = False
+        self.commands_queue.put(("exit", self.socket))
+        while not self.commands_queue.all_tasks_done:
+            connect_protocol.time.sleep(1)
+        self.destroy()
 
 
 if __name__ == '__main__':
