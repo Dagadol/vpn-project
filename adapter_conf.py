@@ -30,19 +30,19 @@ def get_default_gateway_grok():
     ip_address = ip_addresses[0]['addr']
 
     # Step 3: Run netsh interface ip show config to map IP to friendly interface name
-    config_output = subprocess.check_output('netsh interface ip show config', shell=True).decode()
+    config_output = subprocess.check_output('netsh interface ip show config', shell=True)
     lines = config_output.splitlines()
     ip_to_name = {}
     current_name = None
     for line in lines:
-        if line.startswith('Configuration for interface "'):
+        if line.startswith(b'Configuration for interface "'):
             # Extract the interface name between quotes
-            start = line.find('"') + 1
-            end = line.find('"', start)
+            start = line.find(b'"') + 1
+            end = line.find(b'"', start)
             current_name = line[start:end]
-        elif line.strip().startswith('IP Address:'):
+        elif line.strip().startswith(b'IP Address:'):
             # Extract the IP address
-            ip = line.split(':')[1].strip()
+            ip = line.split(b':')[1].strip().decode()
             if current_name:
                 ip_to_name[ip] = current_name
 
@@ -53,15 +53,15 @@ def get_default_gateway_grok():
         exit(1)
 
     # Step 4: Run netsh interface ipv4 show interfaces to get interface indices
-    output = subprocess.check_output('netsh interface ipv4 show interfaces', shell=True).decode()
+    output = subprocess.check_output('netsh interface ipv4 show interfaces', shell=True)
     lines = output.splitlines()
     interface_map = {}
     for line in lines:
-        if line.strip() and not line.startswith('Idx'):
+        if line.strip() and not line.startswith(b'Idx'):
             parts = line.split()
             if len(parts) >= 5:
                 idx = parts[0]
-                name = ' '.join(parts[4:])
+                name = b' '.join(parts[4:])
                 interface_map[name] = idx
 
     # Step 5: Get the index for the interface
@@ -69,7 +69,7 @@ def get_default_gateway_grok():
     if interface_index:
         print(f"Default Gateway: {default_gateway}")
         print(f"Interface Index: {interface_index}")
-        return default_gateway, interface_index
+        return default_gateway, interface_index.decode()
     else:
         print(f"Interface '{interface_name}' not found in netsh interface list")
         return None, None
