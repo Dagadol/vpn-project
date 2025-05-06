@@ -32,8 +32,20 @@ class VPNClient:
         self.receive_thread = None
         self.sniff_thread = None
 
-    def _first_connection(self) -> bytes | None:
+    def _first_connection(self, server_code, my_password1, my_password2) -> bytes | None:
         """Establish initial TCP connection and perform key exchange"""
+        def password_exchange():
+            """password handshake: client side"""
+            command, pass_received = connect_protocol.get_msg(sock)
+            if command != "exchange" or pass_received != my_password1:
+                print("WARNING: MITM attack suspicion")
+                return False
+            sock.send(connect_protocol.create_msg(server_code, "exchange"))
+            command, second_pass_received = connect_protocol.get_msg(sock)
+            if command != "exchange" or second_pass_received != my_password2:
+                return False
+            return True
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         print(f"my ip: '{self.private_ip}' to port: {self.vpn_port}")
         # my_sock.bind((self.private_ip, self.vpn_port))
@@ -41,6 +53,15 @@ class VPNClient:
         while True:
             try:
                 sock.connect((self.vpn_ip, self.vpn_port))
+                try:
+                    status = password_exchange()
+                    if not status:
+                        sock.close()
+                        return False
+                except Exception as e:
+                    print(f"WARNING {e}")
+                    sock.close()
+                    return False
                 # sock, addr = my_sock.accept()
                 # if addr[0] != self.vpn_ip:
                 #     sock.close()
@@ -88,14 +109,14 @@ class VPNClient:
         sock.close()
         return shared_key
 
-    def open_connection(self):
+    def open_connection(self, server_code, my_password1, my_password2):
         """Start VPN connection and begin processing threads"""
         self.active = True
-        self.key = self._first_connection()
+        self.key = self._first_connection(server_code, my_password1, my_password2)
         if not self.key:
             print("Failed to establish initial connection")
             self.gui.logger.error("Failed to establish initial connection")
-            return
+            return False
 
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind((self.private_ip, self.my_port))
@@ -109,6 +130,7 @@ class VPNClient:
         self.receive_thread.start()
         print("VPN connection established")
         self.gui.logger.debug("VPN connection established")
+        return True
 
     def end_connection(self):
         """Gracefully shutdown VPN connection"""

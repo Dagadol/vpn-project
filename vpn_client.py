@@ -1,3 +1,4 @@
+import os
 import random
 import subprocess
 import socket
@@ -87,7 +88,9 @@ def handle_connect(skt) -> bool:
         port = random.randint(50600, 54000)
 
     country = vpn_gui.selected_country
-    skt.send(connect_protocol.create_msg(f"{port}~{country}", "connect"))
+    my_password1 = os.urandom(16).hex()
+    my_password2 = os.urandom(16).hex()
+    skt.send(connect_protocol.create_msg(f"{port}~{country}~{my_password1}~{my_password2}", "connect"))
     vpn_gui.logger.debug("sent to server request connect")
 
     cmd, msg = client_handler.get_thread_data(skt=skt, block=40)
@@ -101,7 +104,7 @@ def handle_connect(skt) -> bool:
         return False
 
     # Parse server response
-    vpn_ip, vpn_port, vm_ip = msg.split("~")
+    vpn_ip, vpn_port, vm_ip, server_code = msg.split("~")
 
     try:
         # Create virtual adapter
@@ -123,7 +126,9 @@ def handle_connect(skt) -> bool:
             client_port=current_client_port,
             gui=vpn_gui
         )
-        vpn_client.open_connection()
+        status = vpn_client.open_connection(server_code, my_password1, my_password2)
+        if not status:
+            return False
         return True
     except Exception as e:
         print("Connection failed:", e)  # maybe let server know that connection failed
@@ -178,9 +183,11 @@ def handle_change(skt):
 
     # Request server change
     country = vpn_gui.selected_country
+    my_password1 = os.urandom(16).hex()
+    my_password2 = os.urandom(16).hex()
     skt.send(connect_protocol.create_msg(
-        f"{vpn_client.vpn_ip}~{vpn_client.my_port}~{v_interface.ip}~{country}", "change"
-    ))
+        f"{vpn_client.vpn_ip}~{vpn_client.my_port}~{v_interface.ip}~{country}~{my_password1}~{my_password2}",
+        "change"))
     cmd, msg = client_handler.get_thread_data(skt)
 
     vpn_gui.logger.debug("Change server request was sent to the server")
@@ -195,7 +202,7 @@ def handle_change(skt):
         return False
 
     # Parse new server details
-    new_vpn_ip, new_vpn_port, new_vm_ip = msg.split("~")
+    new_vpn_ip, new_vpn_port, new_vm_ip, server_code = msg.split("~")
 
     try:
         # Update virtual adapter
@@ -215,7 +222,9 @@ def handle_change(skt):
         # Replace old connection
         vpn_client.end_connection()
         vpn_client = new_client
-        vpn_client.open_connection()
+        status = vpn_client.open_connection(server_code, my_password1, my_password2)
+        if not status:
+            return False
         return True
     except Exception as e:
         print("Server change failed:", e)
@@ -253,6 +262,15 @@ def server_connection(skt):  # TODO: exchange keys in this function
                     vpn_gui.logger.warning(f"fake/wrong IP: '{ip}' correct IP: '{vpn_client.vpn_ip}'")
 
 
+def refresh_countries(skt):
+    skt.send(connect_protocol.create_msg("refresh", "countries"))
+    cmd, msg = client_handler.get_thread_data(skt)
+    if cmd != "countries":
+        return False
+    if vpn_gui.verified:
+        vpn_gui.country_menu.configure(values=msg.split("~"))
+
+
 def handle_command_queue():
     global command_queue
     commands = {
@@ -260,7 +278,8 @@ def handle_command_queue():
         "disconnect": handle_disconnect,
         "change": handle_change,
         "exit": handle_exit,
-        "logout": handle_logout
+        "logout": handle_logout,
+        "refresh": refresh_countries
     }
     while True:
         cmd, args = command_queue.get()

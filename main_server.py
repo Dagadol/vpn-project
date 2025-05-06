@@ -1,6 +1,8 @@
 import socket
 import threading
 
+import random
+random.ran
 import connect_protocol
 import db_communication
 import time
@@ -10,7 +12,7 @@ this_ip = "10.0.0.22"
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.23": "Israel"}  # {VPN IP: country} - Any is default for all countries
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.22": "Israel"}  # {VPN IP: country} - Any is default for all countries
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -100,7 +102,7 @@ def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
 
 
 def handle_connect(skt, addr, client_id, msg, client):
-    port, country = msg.split("~")
+    port, country, client_code_1, client_code_2 = msg.split("~")
 
     if not (client.is_verified or country == "Any"):
         country = "Any"
@@ -111,22 +113,22 @@ def handle_connect(skt, addr, client_id, msg, client):
         print("no server was found")
         return False
 
-    status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id)
+    status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2)
     if not status:
         print(f"able to connect: {status}")
         # notify user
 
 
-def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id):
-    data = f"{addr}~{port}~{client_id}"
+def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2):
+    data = f"{addr}~{port}~{client_id}~{client_code_1}~{client_code_2}"
     vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
     # Get VPN data
     cmd, server_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
-    _, vpn_port, v_ip = server_data.split("~")  # v stands for virtual
+    _, vpn_port, v_ip, server_code = server_data.split("~")  # v stands for virtual
 
     # Craft data for client
-    data = f"{server_ip}~{vpn_port}~{v_ip}"  # vpn_ip~vpn_port~v_ip
+    data = f"{server_ip}~{vpn_port}~{v_ip}~{server_code}"  # vpn_ip~vpn_port~v_ip
 
     # Simple validation
     if cmd == "checkup1":
@@ -141,7 +143,7 @@ def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id):
 
 
 def handle_change(skt, addr, client_id, msg, client):
-    connected_server, port, v_addr, country = msg.split("~")
+    connected_server, port, v_addr, country, client_code_1, client_code_2 = msg.split("~")
 
     if not (client.is_verified or country == "Any"):
         country = "Any"
@@ -152,7 +154,7 @@ def handle_change(skt, addr, client_id, msg, client):
         skt.send(connect_protocol.create_msg("no server was found", "change_0"))
         return False
 
-    status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id)
+    status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2)
     """
     data = f"{addr}~{port}~{client_id}"
     vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
@@ -211,6 +213,15 @@ def try_signup(client) -> bool:
     return True
 
 
+def refresh_countries(skt, this_client):
+    if this_client.is_verified:
+        countries = ["Any"] + [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
+        countries = "~".join(countries)  # maybe later use json to wrap this
+        skt.send(connect_protocol.create_msg(countries, "countries"))
+        return True
+    return False
+
+
 def handle_login(skt, addr, client_id):
     # todo add client_id to db_communication.Client as attribute
     login = False
@@ -258,9 +269,7 @@ def handle_login(skt, addr, client_id):
 
         if this_client.is_verified:
             # send to client the available countries, also possible to send on login
-            countries = ["Any"] + [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
-            countries = "~".join(countries)  # maybe later use json to wrap this
-            skt.send(connect_protocol.create_msg(countries, "countries"))
+            refresh_countries(skt, this_client)
 
         handle_client(skt, addr, client_id, this_client)
 
@@ -307,6 +316,11 @@ def handle_client(skt, addr, client_id, client):
         elif cmd == "change":
             # threading.Thread(target=handle_change, args=[skt, addr[0], client_id, msg])
             handle_change(skt, addr[0], client_id, msg, client)
+        elif cmd == "refresh":
+            status = refresh_countries(skt, client)
+            if not status:
+                # very suspicious activity
+                pass
         elif cmd == "logout":
             logout = True
             if msg != "i want to leave":

@@ -1,3 +1,4 @@
+import os
 import threading
 import socket
 import random
@@ -8,10 +9,10 @@ import connect_protocol
 
 # server_ip = "172.29.168.164"
 # my_ip = "172.29.149.44"
-server_ip = "10.0.0.18"
+server_ip = "10.0.0.22"
 my_ip = ""  # used for communication for VPN e.g. ZeroTier
 
-my_private_ip = "10.0.0.20"  # physical
+my_private_ip = "10.0.0.22"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -52,7 +53,7 @@ def handle_checkup(my_socket, msg):
         available.append(v_addr)  # restore available IPs
         return False
     elif cmd == "checkup1":  # server was assigned
-        _, client_ip, client_port, client_id = msg.split("~")
+        _, client_ip, client_port, client_id, client_password_1, client_password_2 = msg.split("~")
         client_port = int(client_port)
 
         # client_ip is the public IP of the client or the private IP if using ZeroTier
@@ -61,7 +62,8 @@ def handle_checkup(my_socket, msg):
         # set tcp_port
         tcp_port = random.randint(udp_port + 1, 6000)  # fixme: could collide with other active ports
 
-        data = f"{thread_part}~{tcp_port}~{v_addr}"
+        my_password = os.urandom(16).hex()
+        data = f"{thread_part}~{tcp_port}~{v_addr}~{my_password}"
         my_socket.send(connect_protocol.create_msg(data, "checkup1"))
 
         # add new client
@@ -69,8 +71,12 @@ def handle_checkup(my_socket, msg):
         print(f"here: {vpn.clients}")
         vpn.update_addr()
 
-        threading.Thread(target=tcp_connection, args=[client_ip, tcp_port, vpn, my_ip]).start()
-        return True
+        status = tcp_connection(client_ip, tcp_port, vpn, my_ip, my_password, client_password_1, client_password_2)
+        if status:
+            return True
+        else:
+            available.append(v_addr)
+            return False
     else:  # should never get here
         available.append(v_addr)
         print("checkup problem:", cmd, "\t", msg)

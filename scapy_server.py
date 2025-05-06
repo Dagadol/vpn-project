@@ -157,15 +157,28 @@ class OpenServer:
 lock = threading.Lock()
 
 
-def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip):
+def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip, my_password, client_password_1, client_password_2):
     """
     the first connection between the client and this server, represented in tcp
     exchanging keys, and ports.
+    :param client_password_1:
+    :param client_password_2:
+    :param my_password:
     :param my_ip:
     :param vpn: info holder, server. type OpenServer
     :param this_port: tcp_port
     :param client_ip: client's private IP s
     """
+    def password_exchange():
+        """password handshake: server side"""
+        conn.send(connect_protocol.create_msg(client_password_1, "exchange"))
+        command, pass_received = connect_protocol.get_msg(conn)
+        if command != "exchange" or pass_received != my_password:
+            print("WARNING: MITM attack suspicion")
+            return False
+        conn.send(connect_protocol.create_msg(client_password_2, "exchange"))
+        return True
+
     with lock:
         this_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         this_sock.bind((my_ip, this_port))  # Bind the zerotier on `this_port`
@@ -179,6 +192,16 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip):
                 print("Unexpected IP, closing connection.")
                 conn.close()
                 continue
+            else:
+                try:
+                    status = password_exchange()
+                    if not status:
+                        conn.close()
+                        return False
+                except Exception as e:
+                    print(f"WARNING: {e}")
+                    return False
+
             # Process the connection from the expected IP
             # apply diffie-helman protocol
             shared_key = connect_protocol.dh_send(conn)  # get the shared key
@@ -195,8 +218,6 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip):
                 # deal with this error
                 pass
 
-
-
             # Add user
 
             if not vpn.conn:  # activate the thread of vpn if it is not already activated
@@ -208,6 +229,7 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip):
             conn.close()  # close the temp connection
             break  # break the loop
         this_sock.close()
+        return True
 
 
 if __name__ == '__main__':
