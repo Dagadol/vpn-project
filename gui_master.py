@@ -46,6 +46,7 @@ class AppGUI(customtkinter.CTk):
         self.selected_country = "Any"  # used in main
         self.geometry('700x500')
         self.minsize(500, 400)
+        self.countries = []
 
         self.logs_textbox = None
         self.write = 0  # bool of True or False represented in 1 and 0
@@ -171,6 +172,9 @@ class AppGUI(customtkinter.CTk):
                                              command=lambda: self.middle_function("change", tabs))
 
         if self.countries:
+            refresh_btn = customtkinter.CTkButton(main_tab, text="Refresh",
+                                                  command=lambda: self.middle_function("refresh"))
+
             label = customtkinter.CTkLabel(main_tab, text="Choose Country")
             label.place(x=200, y=50)
 
@@ -180,13 +184,14 @@ class AppGUI(customtkinter.CTk):
                 self.selected_country = choice
                 print(f"Selected country updated to: {self.selected_country}")
 
-            country_menu = customtkinter.CTkOptionMenu(
+            self.country_menu = customtkinter.CTkOptionMenu(
                 main_tab,
                 values=self.countries,
                 command=on_country_change  # gets called automatically on change
             )
-            country_menu.set(self.selected_country)  # sets default
-            country_menu.place(x=200, y=90)
+            self.country_menu.set(self.selected_country)  # sets default
+            self.country_menu.place(x=200, y=90)
+            refresh_btn.place(x=250, y=90)
 
         connect_btn.place(x=40, y=50)
         disconnect_btn.place(x=40, y=120)
