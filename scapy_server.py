@@ -9,14 +9,10 @@ from scapy.arch.windows import get_windows_if_list
 
 
 def name_by_ip(ip):
-    for iface in get_windows_if_list():
-        try:
-            for this_ip in iface["ips"]:
-                if this_ip == ip:
-                    return iface["description"]
-        except KeyError:
-            continue
-    return None
+    try:
+        return [iface['description'] for iface in get_windows_if_list() if ip in iface.get('ips', [])][0]
+    except (KeyError, IndexError):
+        return None
 
 
 class OpenServer:
@@ -121,7 +117,7 @@ class OpenServer:
                 return pkt
             print("broken checksum:", this_checksum)
         else:
-            print("no checksum")
+            print(f"no checksum: {data}\t {addr}")
         return False
 
     def internet_send(self):
@@ -145,10 +141,9 @@ class OpenServer:
 
     def forward_to_client(self, pkt):
         # print(f"pkt from internet {pkt}")
-        updated_pkt = self.nat.internet_recv(pkt)
+        updated_pkt, addr = self.nat.internet_recv(pkt)
         if updated_pkt:
             # print("returning to client:", updated_pkt)
-            addr = self.nat.get_socket_dst(updated_pkt)  # get the addr info
 
             # encrypt before sending
             raw_pkt = bytes(updated_pkt)
@@ -186,12 +181,12 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip, my_password, cl
     """
     def password_exchange():
         """password handshake: server side"""
-        conn.send(connect_protocol.create_msg(client_password_1, "exchange"))
-        command, pass_received = connect_protocol.get_msg(conn)
-        if command != "exchange" or pass_received != my_password:
+        conn.send(connect_protocol.create_msg(hashlib.sha256(client_password_1).hexdigest(), "exchange"))
+        command, hash_received = connect_protocol.get_msg(conn)
+        if command != "exchange" or hash_received != hashlib.sha256(my_password).hexdigest():
             print("WARNING: MITM attack suspicion")
             return False
-        conn.send(connect_protocol.create_msg(client_password_2, "exchange"))
+        conn.send(connect_protocol.create_msg(hashlib.sha256(client_password_2).hexdigest(), "exchange"))
         return True
 
     with lock:
