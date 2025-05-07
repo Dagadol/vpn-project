@@ -1,18 +1,16 @@
 import socket
 import threading
 
-import random
-random.ran
 import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.22"
+this_ip = "10.0.0.11"
 # this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.22": "Israel"}  # {VPN IP: country} - Any is default for all countries
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}  # {VPN IP: country} - Any is default for all countries
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -267,9 +265,8 @@ def handle_login(skt, addr, client_id):
         print("data sent:", data)
         skt.send(data)
 
-        if this_client.is_verified:
-            # send to client the available countries, also possible to send on login
-            refresh_countries(skt, this_client)
+        # send to client the available countries, also possible to send on login
+        refresh_countries(skt, this_client)
 
         handle_client(skt, addr, client_id, this_client)
 
@@ -292,7 +289,7 @@ def handle_client(skt, addr, client_id, client):
 
         print("command got:", cmd)
         if cmd == "exit":
-            if msg != "i want to leave":  # indicates that user is already not connected
+            if msg != "i want to leave" and msg != "force exit":  # indicates that user is already not connected
                 server_ip, v_addr = msg.split('~')
                 print(f"user connected wants to leave from {server_ip}")
                 disconnect_vpn_by_ip(server_ip, v_addr)  # msg hold the vpn ip
@@ -316,7 +313,7 @@ def handle_client(skt, addr, client_id, client):
         elif cmd == "change":
             # threading.Thread(target=handle_change, args=[skt, addr[0], client_id, msg])
             handle_change(skt, addr[0], client_id, msg, client)
-        elif cmd == "refresh":
+        elif cmd == "countries":
             status = refresh_countries(skt, client)
             if not status:
                 # very suspicious activity
