@@ -9,10 +9,10 @@ import connect_protocol
 
 # server_ip = "172.29.168.164"
 # my_ip = "172.29.149.44"
-server_ip = "10.0.0.22"
+server_ip = "10.0.0.11"
 my_ip = ""  # used for communication for VPN e.g. ZeroTier
 
-my_private_ip = "10.0.0.22"  # physical
+my_private_ip = "10.0.0.11"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -83,6 +83,16 @@ def handle_checkup(my_socket, msg):
         return False
 
 
+def try_remove(skt, msg):
+    client_id, thread_msg = msg.split("~")
+    v_addr = [v_addr for v_addr, client in clients.items() if client == client_id]
+    if v_addr:
+        handle_remove(skt, f"{v_addr[0]}~{thread_msg}")
+    else:
+        f"to_{thread_msg.split("_")[1]}"
+        skt.send(connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
+
+
 def handle_remove(skt, msg):
     global available
     v_addr, thread_msg = msg.split("~")
@@ -147,6 +157,8 @@ def handle_server(my_socket):
         elif cmd == "remove":
             print("remove:", msg)
             threading.Thread(target=handle_remove, args=[my_socket, msg]).start()
+        elif cmd == "end-conn":
+            threading.Thread(target=try_remove, args=[my_socket, msg]).start()
         elif cmd == "break":  # no msg was incoming
             continue
         else:
