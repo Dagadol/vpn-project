@@ -12,7 +12,7 @@ BASE = 2  # hd base
 FIXED_LEN = 4
 command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
                 "exchange", "f_conn", "test", "vpn_in", "checkup", "checkup0", "checkup1", "shutdown", "remove",
-                "login", "signup", "fail", "success", "logout", "countries"]
+                "login", "signup", "fail", "success", "logout", "countries", "end-conn"]
 
 
 class CommandHandler:
