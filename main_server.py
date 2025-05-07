@@ -10,7 +10,7 @@ this_ip = "10.0.0.11"
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}  # {VPN IP: country} - Any is default for all countries
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.11": "Israel"}  # {VPN IP: country} - Any is default for all countries
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -113,7 +113,7 @@ def handle_connect(skt, addr, client_id, msg, client):
 
     status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2)
     if not status:
-        print(f"able to connect: {status}")
+        print(f"unable to connect: {status}")
         # notify user
 
 
@@ -272,8 +272,15 @@ def handle_login(skt, addr, client_id):
 
 
 def disconnect_from_all(client_id):  # todo
-    """tell to all servers to disconnect this ID"""
-    pass
+    """tell to all servers to remove this ID"""
+    thread_id = threading.get_native_id()
+    for vpn_skt in vpn_servers.values():
+        vpn_skt.send(connect_protocol.create_msg(f"{client_id}~from_id:{thread_id}", "end-conn"))
+        cmd, _ = server_handler.get_thread_data(vpn_skt, thread_id)
+        if cmd == "remove":
+            print("user successfully removed")
+            return
+    print("user was not connected")
 
 
 def handle_client(skt, addr, client_id, client):
