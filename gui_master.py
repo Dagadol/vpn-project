@@ -173,7 +173,7 @@ class AppGUI(customtkinter.CTk):
 
         if self.countries:
             refresh_btn = customtkinter.CTkButton(main_tab, text="Refresh",
-                                                  command=lambda: self.middle_function("refresh"))
+                                                  command=lambda: self.middle_function("refresh", tabs))
 
             label = customtkinter.CTkLabel(main_tab, text="Choose Country")
             label.place(x=200, y=50)
