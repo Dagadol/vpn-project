@@ -5,6 +5,18 @@ from scapy.all import sniff, send
 from scapy.layers.inet import IP
 import hashlib
 import threading
+from scapy.arch.windows import get_windows_if_list
+
+
+def name_by_ip(ip):
+    for iface in get_windows_if_list():
+        try:
+            for this_ip in iface["ips"]:
+                if this_ip == ip:
+                    return iface["description"]
+        except KeyError:
+            continue
+    return None
 
 
 class OpenServer:
@@ -15,10 +27,10 @@ class OpenServer:
         if self.clients is None:
             self.clients = dict()
 
-        if not this_server_ip:
-            self.my_ip = private_ip
-        else:
+        if this_server_ip:
             self.my_ip = this_server_ip
+        else:
+            self.my_ip = private_ip
 
         # if clients is None. create a value, and enter it the nat class
         # in order to make the nat.users_addr point at self.clients
@@ -126,6 +138,7 @@ class OpenServer:
                 if new_pkt:
                     new_pkt = IP(new_pkt)
                     # print("sending to internet:", new_pkt)
+                    # iface_name = name_by_ip(new_pkt.src)
                     send(new_pkt, verbose=False)
                 else:
                     print("invalid packet:", pkt)
@@ -150,7 +163,9 @@ class OpenServer:
     def internet_recv(self):
         while self.conn:
             # print("here")
-            sniff(prn=lambda p: self.forward_to_client(p), filter="ip", stop_filter=lambda p: (not self.conn))
+            iface_name = name_by_ip(self.my_ip)  # might be a problem if iface ip is not the main physical
+            sniff(prn=lambda p: self.forward_to_client(p), iface=iface_name, filter="ip",
+                  stop_filter=lambda p: (not self.conn))
             print("sniffed stopped")
 
 
