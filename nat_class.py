@@ -1,20 +1,7 @@
-
 from collections import deque
 
 from scapy.layers.inet import IP, UDP, TCP
 import time
-
-
-def update_checksum(bad_bytes: bytes) -> bytes:  # update checksum using scapy. maybe try with struct later
-    # turn bytes to scapy structured
-    scapy_struct = IP(bad_bytes)
-
-    # easily remove the IP header's and transport layer header's checksum
-    del scapy_struct[IP].chksum
-    del tcp_udp(scapy_struct).chksum
-
-    # return bytes (scapy automatically update the checksum with `bytes()`)
-    return bytes(scapy_struct)
 
 
 def tcp_udp(p):
@@ -46,7 +33,8 @@ class ClassNAT:
         # set users allowed to connect to this server
         self.users_addr = users  # this is equal to users even if users is None, so self.users_addr will point to users
         if users is None:  # fixme, i dont really like this, because i want users_addr to point at user
-            self.users_addr = dict()  # dict of allowed users. (IP address: port socket) todo change to defaultdict(int)
+            self.users_addr = dict()  # dict of allowed users. {v_addr: (user_ip, user_port)}
+        # todo change to defaultdict(int)
         # else:
 
         self.vpn_private_ip = my_ip
@@ -86,14 +74,18 @@ class ClassNAT:
         # change from bytes to scapy
         packet_data = IP(data)  # must IP because of wireguard
         # check vm IP
-        if packet_data.src in self.users_addr:
+        packet_source = packet_data.src
+        if packet_source in self.users_addr:
 
             # check addr validity if vm IP is valid
-            if self.users_addr[packet_data.src] != addr:
+            if self.users_addr[packet_source] != addr:
                 print("spoof attack, from:", addr)
                 return None
             try:
-                info_address = (packet_data.src, tcp_udp(packet_data).sport)
+                packet_layer4 = tcp_udp(packet_data)
+                if not packet_layer4:
+                    return None
+                info_address = (packet_source, packet_layer4.sport)
             except AttributeError:
                 return None
 
@@ -110,7 +102,7 @@ class ClassNAT:
                 self.nat_table.append(
                     (info_address,
                      self.port_pool.popleft(),
-                     (packet_data[IP].dst, tcp_udp(packet_data).dport))
+                     (packet_data.dst, packet_layer4.dport))
                 )
                 index = len(self.nat_table) - 1
             else:
@@ -121,44 +113,45 @@ class ClassNAT:
                 self.nat_timeouts[self.nat_table[index][1]] = time.time()
 
             # update sources
-            packet_data[IP].src = self.vpn_private_ip
-            tcp_udp(packet_data).sport = self.nat_table[index][1]  # get the public port
+            packet_data.src = self.vpn_private_ip
+            packet_layer4.sport = self.nat_table[index][1]  # get the public port
 
             # update checksum
             # data = update_checksum(bytes(packet_data))
             """del packet_data.chksum
             del tcp_udp(packet_data).chksum
             data = bytes(packet_data)"""
-            data = update_checksum(bytes(packet_data))
+            del packet_layer4.chksum
+            del packet_data.chksum
 
-            return data
+            return bytes(packet_data)
 
         print("non assigned addr:", addr)
         return None  # invalid address
 
-    def internet_recv(self, data: IP) -> IP | None:
+    def internet_recv(self, scapy_packet: IP) -> tuple[IP, tuple[str, int] | None] | None:
         """
         get data in format of scapy, return data with updated destinations
         return address info of the client
 
-        :param data: scapy TCP/UDP packet
+        :param scapy_packet: scapy TCP/UDP packet
         :return: data, client's ip address
         """
-
-        if data[IP].dst != self.vpn_private_ip:  # drop packet if destination is not this VPN
+        scapy_packet = scapy_packet[IP]
+        if scapy_packet.dst != self.vpn_private_ip:  # drop packet if destination is not this VPN
             # print("wrong dest")
             return None
 
         # get layer 4 of the packet  (UDP/TCP)
-        layer4 = tcp_udp(data)
+        layer4 = tcp_udp(scapy_packet)
         if not layer4:
-            print("invalid internet packet struct:", data)
+            print("invalid internet packet struct:", scapy_packet)
             return None
 
         # vpn public port
         public_port = layer4.dport
         # internet source info
-        source_ip = data[IP].src
+        source_ip = scapy_packet.src
         source_port = layer4.sport
 
         dict_table = {sublist[1]: i for i, sublist in enumerate(self.nat_table)}
@@ -177,7 +170,7 @@ class ClassNAT:
                 # come back alive (to the nat_table) else they will be permanently deleted.
                 # 3) do solution (1) and raise the amount of the public ports, in port pool. the question is to how much
 
-                print("need to update nat_table; unmatch connection:", data)
+                print("need to update nat_table; unmatch connection:", scapy_packet)
                 return None
 
             # client address info
@@ -189,7 +182,7 @@ class ClassNAT:
             # ip_header.dst = addr[0]  # client VM's IP address
             layer4.dport = addr[1]  # client's original port
 
-            data = IP(dst=addr[0], src=data[IP].src) / layer4
+            scapy_packet.dst = addr[0]
             # tcp_udp(data).dport = addr[1]
             # data = data[IP]
 
@@ -199,12 +192,14 @@ class ClassNAT:
             """
 
             # update checksum
-            data = IP(update_checksum(bytes(data)))
+            # scapy_packet = IP(update_checksum(bytes(scapy_packet)))
+            del scapy_packet.chksum
+            del layer4.chksum
             # data contains not enough info in order to
             # extract variables to match `sendto(data, (-, -))`
             # it is missing ip and port.
             # in order to get these, you can use the function `get_socket_dst` in the server code
-            return data  # `data` is in format of scapy packet
+            return scapy_packet, self.get_socket_dst(addr[0])
 
         # print(f"invalid connection: {data}")
         return None
