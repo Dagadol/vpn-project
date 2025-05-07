@@ -24,7 +24,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.22", 5500)  # main server connection
+main_server_addr = ("10.0.0.11", 5500)  # main server connection
 # main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
 
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
@@ -325,7 +325,8 @@ def main():
         while not key:
             time.sleep(0.1)
 
-        threading.Thread(target=client_handler.listen_for_commands, args=[skt]).start()
+        t_listen = threading.Thread(target=client_handler.listen_for_commands, args=[skt])
+        t_listen.start()
         t_command_handler = threading.Thread(target=handle_command_queue)  # maybe set as a daemon
         t_command_handler.start()
 
@@ -335,6 +336,7 @@ def main():
         print("all task are done")
 
         client_handler.turn_off()
+        t_listen.join()
 
     print("Connection closed")
 
