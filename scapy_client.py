@@ -36,13 +36,13 @@ class VPNClient:
         """Establish initial TCP connection and perform key exchange"""
         def password_exchange():
             """password handshake: client side"""
-            command, pass_received = connect_protocol.get_msg(sock)
-            if command != "exchange" or pass_received != my_password1:
+            command, hash_received = connect_protocol.get_msg(sock)
+            if command != "exchange" or hash_received != hashlib.sha256(my_password1).hexdigest():
                 print("WARNING: MITM attack suspicion")
                 return False
-            sock.send(connect_protocol.create_msg(server_code, "exchange"))
-            command, second_pass_received = connect_protocol.get_msg(sock)
-            if command != "exchange" or second_pass_received != my_password2:
+            sock.send(connect_protocol.create_msg(hashlib.sha256(server_code).hexdigest(), "exchange"))
+            command, second_hash_received = connect_protocol.get_msg(sock)
+            if command != "exchange" or second_hash_received != hashlib.sha256(my_password2).hexdigest():
                 return False
             return True
 
@@ -165,7 +165,7 @@ class VPNClient:
         """Filter for packets from virtual adapter not destined for VPN"""
         if IP in pkt:
             try:
-                return (pkt[IP].src == self.virtual_adapter_ip and
+                return (pkt.src == self.virtual_adapter_ip and
                         nat_class.tcp_udp(pkt).dport != self.vpn_port)
             except AttributeError:
                 return False
@@ -174,30 +174,16 @@ class VPNClient:
     def _receive_from_adapter(self):
         """Sniff packets from the virtual adapter and forward them to the VPN."""
         conf.ifaces.reload()
-
         time.sleep(2)  # After reloading interfaces
 
         attempt = 0
-
-        guid = self.virtual_adapter_name
-        index = self.virtual_adapter_name
-        description = self.virtual_adapter_name
-
-        for adapter in get_windows_if_list():
-            if adapter["name"] == self.virtual_adapter_name:
-                index = adapter["index"]
-                description = adapter["description"]
-                guid = adapter["guid"]
-
-        name = self.virtual_adapter_name
-
         while self.active:  # Continue as long as the VPN connection is active
             try:
                 sniff(
                     prn=lambda p: self._send_to_vpn(p),  # Function to process packets
                     filter="ip",
                     lfilter=self._scapy_filter,  # Packet filter, if any
-                    iface=name,  # self.virtual_adapter_name,  # Interface name (e.g., "wrgrd")
+                    iface=self.virtual_adapter_name,  # Interface name (e.g., "wrgrd")
                     stop_filter=lambda p: not self.active  # Stop when connection ends
                 )
                 # print("Successfully started sniffing on the virtual adapter.")
@@ -208,16 +194,8 @@ class VPNClient:
                 # every 5 failed attempts, change name of the iface
                 if attempt % 5 == 0:
                     conf.ifaces.reload()
-                    if name == self.virtual_adapter_name:
-                        name = description
-                    elif name == description:
-                        name = index
-                    elif name == index:
-                        name = guid
-                    else:
-                        name = self.virtual_adapter_name
 
-                print(f"Attempt {attempt}, with the name '{name}': Failed to start sniffing - {e}")
+                print(f"Attempt {attempt}, with the name '{self.virtual_adapter_name}': Failed to start sniffing - {e}")
                 time.sleep(1)  # Wait 1 second before retrying
         else:
             print("Stopped sniffing due to VPN connection termination.")
@@ -228,6 +206,8 @@ class VPNClient:
         i = 1
         # raw_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
         # raw_sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        iface = [iface["description"] for iface in get_windows_if_list() if "127.0.0.1" in iface.get("ips", [])][0]
+        scapy_socket = conf.L3socket(iface=iface)
         while self.active:
             i += 1
             try:
@@ -255,11 +235,10 @@ class VPNClient:
                 # iface = self.virtual_adapter_name  # doesn't work
                 # iface = conf.ifaces.dev_from_index(1)  # loopback by index -- works with scapy_socket
                 # iface = 'Software Loopback Interface 1'  # works with the scapy_socket
-                # scapy_socket = conf.L3socket(iface=iface)
-                # scapy_socket.send(pkt)
+                scapy_socket.send(pkt)
                 # send(pkt, iface=iface, verbose=False)
 
-                send(pkt, iface='Software Loopback Interface 1', verbose=False)
+                # send(pkt, iface='Software Loopback Interface 1', verbose=False)
                 # send(pkt, iface=self.virtual_adapter_name, verbose=False)
                 # print(f"Self injected packet: {pkt.summary()}")
 
