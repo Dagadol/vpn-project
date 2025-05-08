@@ -5,12 +5,12 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.11"
+this_ip = "10.0.0.14"
 # this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.11": "Israel"}  # {VPN IP: country} - Any is default for all countries
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}  # {VPN IP: country} - Any is default for all countries
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -153,13 +153,6 @@ def handle_change(skt, addr, client_id, msg, client):
         return False
 
     status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2)
-    """
-    data = f"{addr}~{port}~{client_id}"
-    vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
-
-    data = f"{server_ip}~{connect_protocol.get_msg(vpn_servers[server_ip])}"  # vpn_ip~vpn_port~v_ip
-    skt.send(connect_protocol.create_msg(data, "change_1"))
-    """
     if status:
         disconnect_vpn_by_ip(connected_server, v_addr)  # disconnect previous server
     else:
@@ -303,6 +296,7 @@ def handle_client(skt, addr, client_id, client):
             elif msg == "i want to leave":
                 print("user not connected wants to leave")
             else:
+                print("user ended task")
                 disconnect_from_all(client_id)
             del client_dict[client_id]
             skt.close()

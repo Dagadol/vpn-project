@@ -102,7 +102,7 @@ class OpenServer:
             print("invalid user")
             return False
 
-        data = data.split(b'~~')
+        data = data.split(b'~~~')
 
         if data and len(data) == 2:  # ensure data has split correctly
             checksum = data[0]
@@ -142,7 +142,7 @@ class OpenServer:
     def forward_to_client(self, pkt):
         # print(f"pkt from internet {pkt}")
         updated_pkt, addr = self.nat.internet_recv(pkt)
-        if updated_pkt:
+        if updated_pkt and addr:
             # print("returning to client:", updated_pkt)
 
             # encrypt before sending
@@ -151,7 +151,7 @@ class OpenServer:
 
             # add checksum
             checksum = hashlib.md5(encrypted_pkt).hexdigest()  # using md5
-            data = checksum.encode() + b"~~" + encrypted_pkt
+            data = checksum.encode() + b"~~~" + encrypted_pkt
 
             self.skt.sendto(data, addr)
 
@@ -167,7 +167,8 @@ class OpenServer:
 lock = threading.Lock()
 
 
-def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip, my_password, client_password_1, client_password_2):
+def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip,
+                   my_password: str, client_password_1: str, client_password_2: str):
     """
     the first connection between the client and this server, represented in tcp
     exchanging keys, and ports.
@@ -181,12 +182,12 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip, my_password, cl
     """
     def password_exchange():
         """password handshake: server side"""
-        conn.send(connect_protocol.create_msg(hashlib.sha256(client_password_1).hexdigest(), "exchange"))
+        conn.send(connect_protocol.create_msg(hashlib.sha256(client_password_1.encode()).hexdigest(), "exchange"))
         command, hash_received = connect_protocol.get_msg(conn)
-        if command != "exchange" or hash_received != hashlib.sha256(my_password).hexdigest():
+        if command != "exchange" or hash_received != hashlib.sha256(my_password.encode()).hexdigest():
             print("WARNING: MITM attack suspicion")
             return False
-        conn.send(connect_protocol.create_msg(hashlib.sha256(client_password_2).hexdigest(), "exchange"))
+        conn.send(connect_protocol.create_msg(hashlib.sha256(client_password_2.encode()).hexdigest(), "exchange"))
         return True
 
     with lock:

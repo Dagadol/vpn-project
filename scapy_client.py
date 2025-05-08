@@ -32,17 +32,17 @@ class VPNClient:
         self.receive_thread = None
         self.sniff_thread = None
 
-    def _first_connection(self, server_code, my_password1, my_password2) -> bytes | None:
+    def _first_connection(self, server_code: str, my_password1: str, my_password2: str) -> bytes | None:
         """Establish initial TCP connection and perform key exchange"""
         def password_exchange():
             """password handshake: client side"""
             command, hash_received = connect_protocol.get_msg(sock)
-            if command != "exchange" or hash_received != hashlib.sha256(my_password1).hexdigest():
+            if command != "exchange" or hash_received != hashlib.sha256(my_password1.encode()).hexdigest():
                 print("WARNING: MITM attack suspicion")
                 return False
-            sock.send(connect_protocol.create_msg(hashlib.sha256(server_code).hexdigest(), "exchange"))
+            sock.send(connect_protocol.create_msg(hashlib.sha256(server_code.encode()).hexdigest(), "exchange"))
             command, second_hash_received = connect_protocol.get_msg(sock)
-            if command != "exchange" or second_hash_received != hashlib.sha256(my_password2).hexdigest():
+            if command != "exchange" or second_hash_received != hashlib.sha256(my_password2.encode()).hexdigest():
                 return False
             return True
 
@@ -157,7 +157,7 @@ class VPNClient:
         encrypted = connect_protocol.encrypt(raw_data, self.key)
         checksum = hashlib.md5(encrypted).hexdigest()
         self.udp_socket.sendto(
-            f"{checksum}~~".encode() + encrypted,
+            f"{checksum}~~~".encode() + encrypted,
             (self.vpn_ip, self.vpn_port))
         # print(f"Sent packet to VPN: {pkt.summary()}")
 
@@ -204,10 +204,16 @@ class VPNClient:
         """Receive from VPN server and inject into virtual adapter"""
         print("started VPN receiving")
         i = 1
+        conf.ifaces.reload()
+        time.sleep(2)
         # raw_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
         # raw_sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
         iface = [iface["description"] for iface in get_windows_if_list() if "127.0.0.1" in iface.get("ips", [])][0]
-        scapy_socket = conf.L3socket(iface=iface)
+        print(f"iface: {iface}")
+        try:
+            scapy_socket = conf.L3socket(iface=iface)
+        except OSError:
+            scapy_socket = conf.L3socket(iface=conf.loopback_name)
         while self.active:
             i += 1
             try:
@@ -217,7 +223,7 @@ class VPNClient:
                     continue
 
                 # Split checksum and data
-                checksum, _, encrypted = data.partition(b"~~")
+                checksum, _, encrypted = data.partition(b"~~~")
                 if hashlib.md5(encrypted).hexdigest() != checksum.decode():
                     # print("Checksum mismatch!")
                     continue

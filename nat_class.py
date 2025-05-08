@@ -50,8 +50,10 @@ class ClassNAT:
         self.cleanup = False
 
     def get_socket_dst(self, data=None, ip: str = "") -> None | tuple[str, int]:
-        if ip in self.users_addr:
-            return self.users_addr[ip]
+        if ip:
+            if ip in self.users_addr:
+                return self.users_addr[ip]
+            return None
         if data:
             try:
                 ip = data[IP].dst
@@ -129,7 +131,7 @@ class ClassNAT:
         print("non assigned addr:", addr)
         return None  # invalid address
 
-    def internet_recv(self, scapy_packet: IP) -> tuple[IP, tuple[str, int] | None] | None:
+    def internet_recv(self, scapy_packet: IP) -> tuple[IP, tuple[str, int]] | tuple[None, None]:
         """
         get data in format of scapy, return data with updated destinations
         return address info of the client
@@ -140,13 +142,13 @@ class ClassNAT:
         scapy_packet = scapy_packet[IP]
         if scapy_packet.dst != self.vpn_private_ip:  # drop packet if destination is not this VPN
             # print("wrong dest")
-            return None
+            return None, None
 
         # get layer 4 of the packet  (UDP/TCP)
         layer4 = tcp_udp(scapy_packet)
         if not layer4:
             print("invalid internet packet struct:", scapy_packet)
-            return None
+            return None, None
 
         # vpn public port
         public_port = layer4.dport
@@ -171,7 +173,7 @@ class ClassNAT:
                 # 3) do solution (1) and raise the amount of the public ports, in port pool. the question is to how much
 
                 print("need to update nat_table; unmatch connection:", scapy_packet)
-                return None
+                return None, None
 
             # client address info
             addr = self.nat_table[index][0]
@@ -199,10 +201,10 @@ class ClassNAT:
             # extract variables to match `sendto(data, (-, -))`
             # it is missing ip and port.
             # in order to get these, you can use the function `get_socket_dst` in the server code
-            return scapy_packet, self.get_socket_dst(addr[0])
+            return scapy_packet, self.get_socket_dst(ip=addr[0])
 
         # print(f"invalid connection: {data}")
-        return None
+        return None, None
 
     def cleanup_nat_table(self):
         """Remove stale NAT entries"""
