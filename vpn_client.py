@@ -24,7 +24,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.14", 5500)  # main server connection
+main_server_addr = ("10.0.0.12", 5500)  # main server connection
 # main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
 
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
@@ -271,6 +271,61 @@ def refresh_countries(skt):
         vpn_gui.country_menu.configure(values=msg.split("~"))
 
 
+def show_queries(args):
+    skt, filters = args
+    print(f"my filters: {filters}")
+    skt.send(connect_protocol.create_msg(filters, "admin"))
+    cmd, msg = client_handler.get_thread_data(skt)
+    if cmd != "admin":
+        vpn_gui.logger.error(msg)
+        return False
+    elif msg == "no user was found":
+        vpn_gui.logger.info(msg)
+        return True
+
+    query_results = gui_master.json.loads(msg)
+    vpn_gui.display_users(query_results)
+
+    return True
+
+
+def handle_verify(args):
+    def back_to_main():
+        vpn_gui.main()
+
+    def clear_window():
+        vpn_gui.clear_window()
+        vpn_gui.verified = True
+        vpn_gui.after(10, back_to_main)
+
+    # set variables
+    error_label = [widget for widget in vpn_gui.winfo_children()  # get the error label in `verify context`
+                   if isinstance(widget, gui_master.customtkinter.CTkLabel)][0]
+    skt, req = args  # args got from the function
+
+    # pass request to server
+    skt.send(connect_protocol.create_msg(req, "verify"))
+    cmd, msg = client_handler.get_thread_data(skt)
+    if cmd != "verify":
+        print(f"error receiving verify ack. cmd {cmd}, msg {msg}")
+        error_label.configure(text=msg)
+        return
+    if req == "new":  # case of new code request
+        if msg == "true":
+            error_label.configure(text="30 seconds before code expired\nenter code below", text_color="black")
+        else:
+            error_label.configure(text=f"wait {30 - int(float(msg))} seconds before asking again", text_color="red")
+    else:  # case of try to verify request
+        if msg == "true":
+            vpn_gui.after(0, clear_window)
+        elif msg == "exp":
+            error_label.configure(text="code was expired")
+        elif msg == "false":
+            error_label.configure(text="code is not matching")
+        else:
+            error_label.configure(text="no code was generated")
+
+
 def handle_command_queue():
     global command_queue
     commands = {
@@ -279,7 +334,9 @@ def handle_command_queue():
         "change": handle_change,
         "exit": handle_exit,
         "logout": handle_logout,
-        "refresh": refresh_countries
+        "refresh": refresh_countries,
+        "admin": show_queries,
+        "verify": handle_verify
     }
     while True:
         cmd, args = command_queue.get()
