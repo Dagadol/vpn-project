@@ -1,3 +1,5 @@
+from collections import defaultdict
+import random
 import socket
 import threading
 
@@ -5,7 +7,7 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.14"
+this_ip = "10.0.0.12"
 # this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
@@ -15,9 +17,14 @@ list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}  # {VPN IP: cou
 
 vpn_servers = dict()  # server IP: socket
 client_dict = dict()  # {client ID: (socket, thread)}
-# the thread is used for the client in `server_connection` function
 
 server_handler = connect_protocol.CommandHandler()  # command waiting list
+socket_locks = defaultdict(threading.Lock)
+
+
+def send_atomic(skt, data):
+    with socket_locks[skt]:
+        skt.send(data)
 
 
 def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
@@ -264,7 +271,7 @@ def handle_login(skt, addr, client_id):
         handle_client(skt, addr, client_id, this_client)
 
 
-def disconnect_from_all(client_id):  # todo
+def disconnect_from_all(client_id):
     """tell to all servers to remove this ID"""
     thread_id = threading.get_native_id()
     for vpn_skt in vpn_servers.values():
@@ -276,7 +283,56 @@ def disconnect_from_all(client_id):  # todo
     print("user was not connected")
 
 
+def handle_admin(msg, client, skt):
+    if client.role == "admin":
+        # msg could be in json dumps type
+        filters = db_communication.json.loads(msg) if isinstance(msg, str) else msg
+        data = client.query_clients(**filters)
+        if not data:
+            data = "no user was found"
+
+        skt.send(connect_protocol.create_msg(data, "admin"))
+    else:
+        # return error to the client
+        skt.send(connect_protocol.create_msg("user is not admin", "error"))
+
+
+def send_to_email(client: db_communication.Client):  # todo
+    """sending the code to the client's email"""
+    code = client.code[0]
+    client_email = client.email
+
+
+def generate_new_code(client: db_communication.Client) -> str:
+    def generate():
+        client.code = (str(random.randint(100000, 999999)), time.time(), 0)
+        print(f"code: {client.code}")
+        # send_to_email(client)
+
+    if not client.code:
+        generate()
+        return "true"
+    elif time.time() - client.code[1] > 30:
+        generate()
+        return "true"
+    else:
+        return str(time.time() - client.code[1])
+
+
+def try_verify(client, code: str) -> str:
+    if client.code:  # if client has a code
+        if time.time() - client.code[1] < 30 and client.code[2] < 3:  # if code is not expired (under 30 seconds)
+            if client.code[0] == code:
+                client.set_verified()
+                return "true"
+            client.code = (client.code[0], client.code[1], client.code[2] + 1)
+            return "false"
+        return "exp"
+    return "error"
+
+
 def handle_client(skt, addr, client_id, client):
+    client.set_active()
     logout = False
     while True:
         cmd, msg = connect_protocol.get_msg(skt)
@@ -305,14 +361,22 @@ def handle_client(skt, addr, client_id, client):
         # threads here are unnecessary because client can only send one by one
         elif cmd == "dconnect":
             server_ip, v_addr = msg.split('~')  # msg should hold both server_ip and the v_addr of the user
-            # threading.Thread(target=disconnect_vpn_by_ip, args=[server_ip, v_addr]).start()
             disconnect_vpn_by_ip(server_ip, v_addr)
 
+        elif cmd == "admin":
+            handle_admin(msg, client, skt)
+        elif cmd == "verify":
+            if not client.is_verified:
+                if msg == "new":
+                    skt.send(connect_protocol.create_msg(generate_new_code(client), "verify"))
+                else:
+                    skt.send(connect_protocol.create_msg(try_verify(client, msg), "verify"))
+            else:
+                skt.send(connect_protocol.create_msg("user is already verified", "verify"))
+
         elif cmd == "connect":
-            # threading.Thread(target=handle_client, args=[skt, addr[0], client_id, msg]).start()
             handle_connect(skt, addr[0], client_id, msg, client)
         elif cmd == "change":
-            # threading.Thread(target=handle_change, args=[skt, addr[0], client_id, msg])
             handle_change(skt, addr[0], client_id, msg, client)
         elif cmd == "countries":
             status = refresh_countries(skt, client)
@@ -326,21 +390,17 @@ def handle_client(skt, addr, client_id, client):
                 disconnect_vpn_by_ip(server_ip, v_addr)  # msg hold the vpn ip
             break
 
+    client.set_inactive()
     if logout:
         handle_login(skt, addr, client_id)
 
 
 def handle_server_shutdown(msg, vpn_ip):
     if msg == "none":
-        print("server without user was disconnected")
+        print("server without users was disconnected")
         return
 
     clients = msg.split("~")
-
-    # vpn_ip = ""
-    # for skt, ip in vpn_servers.items():
-    #     if skt == vpn_sock:
-    #         vpn_ip = ip
 
     for client in clients:
         if client not in client_dict:
