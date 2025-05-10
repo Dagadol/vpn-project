@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import bcrypt
+import json
 
 
 class DatabaseConnection:
@@ -35,15 +36,24 @@ if __name__ != '__main__':
 class Client:
     def __init__(self, email, password: str):
         self._verified = None
-        self.email = email
-        self.password = password
+        self._email = email
+        self._password = password
         self.role = None
         self._user_id = None
+        self.code = tuple()  # (code, time, num of try)
 
         # connect to database
         path = "users.db"
         self.conn = sqlite3.connect(path)
         self.cursor = self.conn.cursor()
+
+    @property
+    def email(self):
+        return self._email
+
+    @property
+    def password(self):
+        return self._password
 
     @property
     def is_verified(self):
@@ -64,12 +74,12 @@ class Client:
     def get_user_id(self):
         """Assume user is logged"""
         if not self._user_id:
-            self.cursor.execute("SELECT user_id FROM clients WHERE email=:email", {"email": self.email})
+            self.cursor.execute("SELECT user_id FROM clients WHERE email=:email", {"email": self._email})
             self._user_id = self.cursor.fetchone()[0]
         return self._user_id
 
     def is_registered(self) -> bool:
-        self.cursor.execute("SELECT * From clients WHERE email=:email", {"email": self.email})
+        self.cursor.execute("SELECT * From clients WHERE email=:email", {"email": self._email})
         ans = self.cursor.fetchall()
         return bool(ans)
 
@@ -84,16 +94,16 @@ class Client:
         if not hashed_pass:
             return False
 
-        return bcrypt.checkpw(self.password.encode(), hashed_pass)
+        return bcrypt.checkpw(self._password.encode(), hashed_pass)
 
     def insert_client(self):
         """
         insert the new client, with no checking if email already in use, or any other validation
         """
-        hashed_pass = bcrypt.hashpw(self.password.encode(), bcrypt.gensalt())
+        hashed_pass = bcrypt.hashpw(self._password.encode(), bcrypt.gensalt())
         with self.conn:
             self.cursor.execute("INSERT INTO clients (email, password_hash, role) VALUES (:email, :hash_pass, 'user')",
-                                {"email": self.email, "hash_pass": hashed_pass})
+                                {"email": self._email, "hash_pass": hashed_pass})
         self.role = "user"
 
     def set_verified(self):
@@ -101,6 +111,7 @@ class Client:
         with self.conn:
             self.cursor.execute("UPDATE clients SET is_verified=TRUE WHERE user_id=:user_id",
                                 {"user_id": self._user_id})
+        self._verified = True
 
     def set_active(self):
         with self.conn:
@@ -113,18 +124,50 @@ class Client:
             self.cursor.execute("UPDATE clients SET is_active=FALSE, last_login=CURRENT_TIMESTAMP WHERE user_id=:id",
                                 {"id": self._user_id})
 
-    # below are admin commands
-    def find_user_by_email(self, email):
-        if self.role == "Admin":
-            self.cursor.execute("SELECT * FROM clients WHERE email=:email", {"email": email})
-            raw = self.cursor.fetchone()[0]
-            return raw
+    def query_clients(self, **filters):
+        """commands for admins"""
+        if not self.is_verified:
+            return None
+        cols = [
+            "user_id",
+            "email",
+            "role",
+            "created_at",
+            "last_login",
+            "is_verified",
+            "is_active"
+        ]
+        base_query = f"SELECT {', '.join(cols)} FROM clients"
+        conditions = []
+        params = []
 
-    def all_active_users(self):
-        if self.role == "Admin":
-            self.cursor.execute("SELECT * FROM clients WHERE is_active=TRUE")
-            raw = self.cursor.fetchall()
-            return raw
+        valid_filters = {
+            "is_active": "is_active = ?",
+            "is_verified": "is_verified = ?",
+            "email": "email LIKE ?",
+            "role": "role = ?",
+            "created_after": "created_at >= ?",
+            "created_before": "created_at <= ?"
+        }
+        if "email" not in filters.keys() and "none" not in filters.keys():
+            for key, value in filters.items():
+                if key in valid_filters and value is not None:
+                    conditions.append(valid_filters[key])
+                    if key == "email":
+                        params.append(f"%{value}%")
+                    else:
+                        params.append(value)
+            if conditions:
+                base_query += " WHERE " + " AND ".join(conditions)
+        elif "email" in filters.keys():
+            base_query += " WHERE " + valid_filters["email"]
+            params.append(filters.get("email"))
+
+        print(f"query: '{base_query}', ({params})")
+        self.cursor.execute(base_query, params)
+        raw = self.cursor.fetchall()
+        print(f"raw: {raw}")
+        return json.dumps(raw)
 
 
 if __name__ == '__main__':
