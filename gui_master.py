@@ -2,6 +2,8 @@ import customtkinter
 import re  # regex
 import logging
 import connect_protocol
+import json
+from tkinter import ttk
 
 
 class TextboxHandler(logging.Handler):
@@ -46,7 +48,7 @@ class AppGUI(customtkinter.CTk):
         self.selected_country = "Any"  # used in main
         self.geometry('700x500')
         self.minsize(500, 400)
-        self.countries = []
+        self.countries = ["Any"]
 
         self.logs_textbox = None
         self.write = 0  # bool of True or False represented in 1 and 0
@@ -164,6 +166,53 @@ class AppGUI(customtkinter.CTk):
         logs_tab = tabs.add("Logs")
         user_tab = tabs.add("Settings")
 
+        if self.role == "admin":
+            admin_tab = tabs.add("Admin")
+
+            # Active & Verified checkboxes
+            active_var = customtkinter.BooleanVar(value=False)
+            verified_var = customtkinter.BooleanVar(value=False)
+            show_all_var = customtkinter.BooleanVar(value=True)
+            customtkinter.CTkCheckBox(admin_tab, text="Active", variable=active_var).place(x=20, y=20)
+            customtkinter.CTkCheckBox(admin_tab, text="Verified", variable=verified_var).place(x=150, y=20)
+            customtkinter.CTkCheckBox(admin_tab, text="Show All", variable=show_all_var).place(x=250, y=20)
+
+            # Email search
+            customtkinter.CTkLabel(admin_tab, text="Email:").place(x=20, y=60)
+            email_entry = customtkinter.CTkEntry(admin_tab, width=200)
+            email_entry.place(x=80, y=60)
+
+            # Name search
+            # customtkinter.CTkLabel(admin_tab, text="Name:").place(x=20, y=100)
+            # name_entry = customtkinter.CTkEntry(admin_tab, width=200)
+            # name_entry.place(x=80, y=100)
+
+            cols = ("user_id", "email", "role", "created_at", "last_login", "is_verified", "is_active")
+            user_tree = ttk.Treeview(admin_tab, columns=cols, show='headings', height=8)
+            for col in cols:
+                user_tree.heading(col, text=col.capitalize())
+                user_tree.column(col, width=100, anchor='center')
+            user_tree.place(x=20, y=180, relwidth=0.9)
+            self.dynamic_elements['user_tree'] = user_tree
+
+            def on_search():
+                filters = dict()
+                filters['is_active'] = active_var.get()
+                filters['is_verified'] = verified_var.get()
+
+                show_all = show_all_var.get()
+                if show_all:
+                    filters["none"] = True
+
+                if email_entry.get():
+                    filters['email'] = email_entry.get()
+                # if name_entry.get():
+                #     filters['name'] = name_entry.get()
+                filters_json = json.dumps(filters)
+                self.middle_function('admin', tabs, args=filters_json)
+
+            customtkinter.CTkButton(admin_tab, text="Search Users", command=on_search).place(x=20, y=140)
+
         connect_btn = customtkinter.CTkButton(main_tab, text="Connect",
                                               command=lambda: self.middle_function("connect", tabs))
         disconnect_btn = customtkinter.CTkButton(main_tab, text="Disconnect",
@@ -171,7 +220,7 @@ class AppGUI(customtkinter.CTk):
         change_btn = customtkinter.CTkButton(main_tab, text="Change",
                                              command=lambda: self.middle_function("change", tabs))
 
-        if self.countries:
+        if self.verified:
             refresh_btn = customtkinter.CTkButton(main_tab, text="Refresh",
                                                   command=lambda: self.middle_function("refresh", tabs))
 
@@ -203,11 +252,12 @@ class AppGUI(customtkinter.CTk):
         self.logs_textbox.place(relx=0.5, rely=0.05, anchor="n", relwidth=0.9, relheight=0.75)  # Resizable
         self.dynamic_elements["logs_textbox"] = self.logs_textbox
 
-        s_n_c = customtkinter.CTkButton(logs_tab, command=lambda: self.enable_disable(s_n_c), text="Write packets")
+        stop_btn = customtkinter.CTkButton(logs_tab, command=lambda: self.enable_disable(stop_btn),
+                                           text="Write packets")
         delete_btn = customtkinter.CTkButton(logs_tab, command=self.clear_textbox, text="Clear")
 
         delete_btn.place(relx=0.75, rely=0.85, anchor="e")
-        s_n_c.place(relx=0.25, rely=0.85, anchor="w")
+        stop_btn.place(relx=0.25, rely=0.85, anchor="w")
 
         self.logger = logging.getLogger('vpn_logger')
         self.logger.setLevel(logging.DEBUG)
@@ -225,13 +275,57 @@ class AppGUI(customtkinter.CTk):
         logout_btn = customtkinter.CTkButton(user_tab, text="Log out",
                                              command=lambda: self.middle_function("logout", tabs))
         logout_btn.place(relx=0.5, rely=0.5, anchor="center")
+        if not self.verified:
+            verify_btn = customtkinter.CTkButton(user_tab, text="Verify",
+                                                 command=self.verify_tab)
+            verify_btn.place(relx=0.5, rely=0.75, anchor="center")
 
-    def middle_function(self, cmd, tabs):
+    def middle_function(self, cmd, tabs, args=None):
         if cmd == "connect" and self.connected:
             print("Already connected")
             return
         block_buttons(tabs)
-        self.commands_queue.put((cmd, self.socket))
+        if cmd == "admin" or cmd == "verify":
+            self.commands_queue.put((cmd, (self.socket, args)))
+        else:
+            self.commands_queue.put((cmd, self.socket))
+
+    def verify_tab(self):
+        def go_back():
+            self.clear_window()
+            self.main()
+
+        def send_code():
+            error_label.configure(text="", text_color="red")
+            code = code_entry.get()
+
+            if len(code) != 6 or [num for num in code if num not in "0123456789"]:
+                error_label.configure(text="invalid code, format is 6 digits")
+            else:
+                self.middle_function("verify", self, code)
+
+        self.dynamic_elements["context"] = "verify"
+        self.clear_window()
+        code_entry = customtkinter.CTkEntry(self, placeholder_text="enter code here")
+        submit_code = customtkinter.CTkButton(self, text="Submit code", command=send_code)
+        error_label = customtkinter.CTkLabel(self, text="Enter the code from email below")
+        get_code_btn = customtkinter.CTkButton(self, text="Resend code",
+                                               command=lambda: self.middle_function("verify", self, "new"))
+        return_btn = customtkinter.CTkButton(self, text="Back", command=go_back)
+
+        error_label.place(relx=0.5, rely=0.5, anchor="center")
+        code_entry.place(relx=0.5, rely=0.6, anchor="center")
+        get_code_btn.place(relx=0.25, rely=0.85, anchor="w")
+        submit_code.place(relx=0.75, rely=0.85, anchor="e")
+        return_btn.place(relx=0.25, rely=0.1, anchor="e")
+
+    def display_users(self, users):
+        tree = self.dynamic_elements.get('user_tree')
+        if tree:
+            for item in tree.get_children():
+                tree.delete(item)
+            for row in users:
+                tree.insert('', 'end', values=row)
 
     def enable_disable(self, btn):
         commands = ["Write packets", "Don't write packets"]
@@ -245,7 +339,7 @@ class AppGUI(customtkinter.CTk):
             self.logs_textbox.configure(state="disabled")
 
     def add_to_textbox(self, msg):
-        if self.logs_textbox:
+        if self.logs_textbox and self.dynamic_elements["context"] == "main" and self.logged_in:
             if "pkt_log" in msg:
                 if not self.write:
                     return
