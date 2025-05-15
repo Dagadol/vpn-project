@@ -91,13 +91,13 @@ class AppGUI(customtkinter.CTk):
             self.role, self.verified = msg.split("~")  # role~verified
             self.verified = self.verified == "True"
             self.logged_in = True
-            self.countries = []
+            # self.countries = []
 
             if self.verified:
                 # receive countries
                 cmd, msg = self.receiver.get_thread_data(self.socket)
                 if cmd == "countries":
-                    self.countries = msg.split("~")
+                    self.countries = ["Any"] + msg.split("~")
 
             self.clear_window()
             self.main()

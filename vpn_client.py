@@ -268,7 +268,7 @@ def refresh_countries(skt):
     if cmd != "countries":
         return False
     if vpn_gui.verified:
-        vpn_gui.country_menu.configure(values=msg.split("~"))
+        vpn_gui.country_menu.configure(values=["Any"] + msg.split("~"))
 
 
 def show_queries(args):
