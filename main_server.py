@@ -7,12 +7,13 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.12"
-# this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
+# this_ip = "10.0.0.12"
+this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
 port_for_vpn = 8888
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}  # {VPN IP: country} - Any is default for all countries
+# {VPN IP: country} - Any is default for all countries
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "172.29.168.164": "Israel"}
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -25,6 +26,12 @@ socket_locks = defaultdict(threading.Lock)
 def send_atomic(skt, data):
     with socket_locks[skt]:
         skt.send(data)
+
+
+def close_socket(skt):
+    skt.close()
+    if skt in socket_locks:
+        del socket_locks[skt]
 
 
 def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
@@ -51,7 +58,10 @@ def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
 
         # Measure ping
         start_time = time.time()
-        vpn_servers[ip].send(connect_protocol.create_msg(f"request~from_id:{this_thread}", "checkup"))
+
+        # vpn_servers[ip].send(connect_protocol.create_msg(f"request~from_id:{this_thread}", "checkup"))
+        send_atomic(vpn_servers[ip], connect_protocol.create_msg(f"request~from_id:{this_thread}", "checkup"))
+
         print(f"sent to vpn at {ip}, with {vpn_servers[ip]}")
 
         cmd, msg = server_handler.get_thread_data(vpn_servers[ip], this_thread, 30)
@@ -101,7 +111,8 @@ def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
 
     # Deny servers with no space
     for ip in scores:
-        vpn_servers[ip].send(connect_protocol.create_msg(f"{scores[ip][1]}~denied", "checkup0"))
+        # vpn_servers[ip].send(connect_protocol.create_msg(f"{scores[ip][1]}~denied", "checkup0"))
+        send_atomic(vpn_servers[ip], connect_protocol.create_msg(f"{scores[ip][1]}~denied", "checkup0"))
 
     return best_server, thread_id
 
@@ -114,7 +125,8 @@ def handle_connect(skt, addr, client_id, msg, client):
     server_ip, thread_id = get_fastest_vpn(country)
 
     if not server_ip:
-        skt.send(connect_protocol.create_msg("no server was found", "connect_0"))
+        # skt.send(connect_protocol.create_msg("no server was found", "connect_0"))
+        send_atomic(skt, connect_protocol.create_msg("no server was found", "connect_0"))
         print("no server was found")
         return False
 
@@ -126,7 +138,8 @@ def handle_connect(skt, addr, client_id, msg, client):
 
 def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2):
     data = f"{addr}~{port}~{client_id}~{client_code_1}~{client_code_2}"
-    vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
+    # vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
+    send_atomic(vpn_servers[server_ip], connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
     # Get VPN data
     cmd, server_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
@@ -137,7 +150,8 @@ def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_
 
     # Simple validation
     if cmd == "checkup1":
-        skt.send(connect_protocol.create_msg(data, "connect_1"))
+        # skt.send(connect_protocol.create_msg(data, "connect_1"))
+        send_atomic(skt, connect_protocol.create_msg(data, "connect_1"))
         return True
     elif cmd == "checkup0":
         print("something happened, VPN rejected")
@@ -156,7 +170,8 @@ def handle_change(skt, addr, client_id, msg, client):
     server_ip, thread_id = get_fastest_vpn(country, exception=connected_server)
 
     if not server_ip:
-        skt.send(connect_protocol.create_msg("no server was found", "change_0"))
+        send_atomic(skt, connect_protocol.create_msg("no server was found", "change_0"))
+        # skt.send(connect_protocol.create_msg("no server was found", "change_0"))
         return False
 
     status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2)
@@ -176,7 +191,8 @@ def disconnect_vpn_by_ip(server_ip, v_addr):
         vpn_socket = vpn_servers[server_ip]  # need to check if server_ip is in for error
 
         # let the vpn know the user has disconnect
-        vpn_socket.send(connect_protocol.create_msg(f"{v_addr}~{threading_msg}", "remove"))
+        # vpn_socket.send(connect_protocol.create_msg(f"{v_addr}~{threading_msg}", "remove"))
+        send_atomic(vpn_socket, connect_protocol.create_msg(f"{v_addr}~{threading_msg}", "remove"))
 
         cmd, msg = server_handler.get_thread_data(vpn_socket, threading.get_native_id(), block=10)
         if cmd != "remove":
@@ -213,9 +229,11 @@ def try_signup(client) -> bool:
 
 def refresh_countries(skt, this_client):
     if this_client.is_verified:
-        countries = ["Any"] + [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
+        countries = [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
         countries = "~".join(countries)  # maybe later use json to wrap this
-        skt.send(connect_protocol.create_msg(countries, "countries"))
+        # skt.send(connect_protocol.create_msg(countries, "countries"))
+        data = connect_protocol.create_msg(countries, "countries")
+        send_atomic(skt, data)
         return True
     return False
 
@@ -252,18 +270,19 @@ def handle_login(skt, addr, client_id):
         if not login:  # status (was able to log in/signup)
             data = connect_protocol.create_msg(reason, "fail")
             print("data sent:", data)
-            skt.send(data)
+            # skt.send(data)
+            send_atomic(skt, data)
 
     if not this_client:
         """get here if user breaks/exit"""
         # skt.send(connect_protocol.create_msg("error", "fail"))  # might not be needed
         del client_dict[client_id]
-        skt.close()
+        close_socket(skt)
 
     if login and this_client:
         data = connect_protocol.create_msg(f"{this_client.role}~{this_client.is_verified}", "success")
         print("data sent:", data)
-        skt.send(data)
+        send_atomic(skt, data)
 
         # send to client the available countries, also possible to send on login
         refresh_countries(skt, this_client)
@@ -275,7 +294,9 @@ def disconnect_from_all(client_id):
     """tell to all servers to remove this ID"""
     thread_id = threading.get_native_id()
     for vpn_skt in vpn_servers.values():
-        vpn_skt.send(connect_protocol.create_msg(f"{client_id}~from_id:{thread_id}", "end-conn"))
+        # vpn_skt.send(connect_protocol.create_msg(f"{client_id}~from_id:{thread_id}", "end-conn"))
+        send_atomic(vpn_skt, connect_protocol.create_msg(f"{client_id}~from_id:{thread_id}", "end-conn"))
+
         cmd, _ = server_handler.get_thread_data(vpn_skt, thread_id)
         if cmd == "remove":
             print("user successfully removed")
@@ -291,10 +312,14 @@ def handle_admin(msg, client, skt):
         if not data:
             data = "no user was found"
 
-        skt.send(connect_protocol.create_msg(data, "admin"))
+        # skt.send(connect_protocol.create_msg(data, "admin"))
+        data = connect_protocol.create_msg(data, "admin")
+        send_atomic(skt, data)
     else:
         # return error to the client
-        skt.send(connect_protocol.create_msg("user is not admin", "error"))
+        # skt.send(connect_protocol.create_msg("user is not admin", "error"))
+        data = connect_protocol.create_msg("user is not admin", "error")
+        send_atomic(skt, data)
 
 
 def send_to_email(client: db_communication.Client):  # todo
@@ -331,7 +356,7 @@ def try_verify(client, code: str) -> str:
     return "error"
 
 
-def handle_client(skt, addr, client_id, client):
+def handle_client(skt, addr, client_id, client: db_communication.Client):
     client.set_active()
     logout = False
     while True:
@@ -355,7 +380,9 @@ def handle_client(skt, addr, client_id, client):
                 print("user ended task")
                 disconnect_from_all(client_id)
             del client_dict[client_id]
-            skt.close()
+
+            # skt.close()
+            close_socket(skt)
             break
 
         # threads here are unnecessary because client can only send one by one
@@ -368,11 +395,14 @@ def handle_client(skt, addr, client_id, client):
         elif cmd == "verify":
             if not client.is_verified:
                 if msg == "new":
-                    skt.send(connect_protocol.create_msg(generate_new_code(client), "verify"))
+                    # skt.send(connect_protocol.create_msg(generate_new_code(client), "verify"))
+                    send_atomic(skt, connect_protocol.create_msg(generate_new_code(client), "verify"))
                 else:
-                    skt.send(connect_protocol.create_msg(try_verify(client, msg), "verify"))
+                    # skt.send(connect_protocol.create_msg(try_verify(client, msg), "verify"))
+                    send_atomic(skt, connect_protocol.create_msg(try_verify(client, msg), "verify"))
             else:
-                skt.send(connect_protocol.create_msg("user is already verified", "verify"))
+                # skt.send(connect_protocol.create_msg("user is already verified", "verify"))
+                send_atomic(skt, connect_protocol.create_msg("user is already verified", "verify"))
 
         elif cmd == "connect":
             handle_connect(skt, addr[0], client_id, msg, client)
@@ -408,7 +438,8 @@ def handle_server_shutdown(msg, vpn_ip):
             continue
         client_skt = client_dict[client][0]  # socket at first index
         thread_msg = client_dict[client][1]  # to thread id at second index
-        client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
+        # client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
+        send_atomic(client_skt, connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
 
 
 def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
@@ -420,7 +451,8 @@ def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
             print("server saved:", vpn_servers)
             del vpn_servers[vpn_ip]  # forget vpn
             stop_event.set()
-            skt.close()
+            # skt.close()
+            close_socket(skt)
             break
 
 
@@ -439,9 +471,9 @@ def listen_for_servers():
             if addr[0] not in list_of_allowed_VPNs:
                 vpn_sock.close()
                 continue
-
         vpn_sock.send(connect_protocol.create_msg("hello world", "f_conn"))
         print(f"new server connected from: {addr}")
+        socket_locks[vpn_sock] = threading.Lock()
 
         stop_running = threading.Event()
         threading.Thread(target=server_handler.listen_for_commands, args=[vpn_sock, stop_running]).start()
@@ -465,6 +497,7 @@ def listen_for_clients():
         client_socket, addr = clients_socket.accept()  # wait for user
         client_socket.settimeout(10)
 
+        socket_locks[client_socket] = threading.Lock()
         client_id = f"client {this_id}"  # make client ID in string
         print(f"new client connected: {client_id}, from {addr}")
 
