@@ -100,10 +100,10 @@ def gw_by_guid(guid):
 
 
 def get_private_ip():
-    _, _, ip = find_zerotier_iface()
-    if not ip:
-        return get_physical_private_ip()
-    return ip
+    # _, _, ip = find_zerotier_iface()
+    # if not ip:
+    return get_physical_private_ip()
+    # return ip
 
 
 def get_physical_private_ip():
@@ -122,8 +122,10 @@ def add_static_route(dest_ip: str, gui=None, cmd: str = "add"):
         if not gui.active:  # meaning user chose to exit program
             gui = False
     # Try ZeroTier first
-    zt_iface, iface_index, gw_ip = find_zerotier_iface()
-    if zt_iface:
+    # zt_iface, iface_index, gw_ip = find_zerotier_iface()
+    # if zt_iface:
+    """
+    if False:
         return  # no need to assign a route***
 
         # Use local ZT IP as the "gateway" for a direct route
@@ -138,10 +140,11 @@ def add_static_route(dest_ip: str, gui=None, cmd: str = "add"):
             if gui:
                 gui.logger.info(f"Routing {dest_ip} via ZeroTier iface {zt_iface} (index {iface_index}).")
     else:
-        # No ZT; fall back
-        gw_ip, iface_index = get_default_gateway_grok()
-        if gui:
-            gui.logger.info(f"Routing {dest_ip} via default gateway {gw_ip} (interface index {iface_index}).")
+    """
+    # No ZT; fall back
+    gw_ip, iface_index = get_default_gateway_grok()
+    if gui:
+        gui.logger.info(f"Routing {dest_ip} via default gateway {gw_ip} (interface index {iface_index}).")
 
     # Install the static route
     subprocess.run([
