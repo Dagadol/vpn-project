@@ -24,7 +24,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.12", 5500)  # main server connection
+main_server_addr = ("10.0.0.10", 5500)  # main server connection
 # main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
 
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
@@ -268,7 +268,11 @@ def refresh_countries(skt):
     if cmd != "countries":
         return False
     if vpn_gui.verified:
-        vpn_gui.country_menu.configure(values=["Any"] + msg.split("~"))
+        if msg == "none":
+            values = ["Any"]
+        else:
+            values = ["Any"] + msg.split("~")
+        vpn_gui.country_menu.configure(values=values)
 
 
 def show_queries(args):
@@ -310,9 +314,11 @@ def handle_verify(args):
         print(f"error receiving verify ack. cmd {cmd}, msg {msg}")
         error_label.configure(text=msg)
         return
-    if req == "new":  # case of new code request
+    if "new" in req:  # case of new code request
         if msg == "true":
             error_label.configure(text="30 seconds before code expired\nenter code below", text_color="black")
+        elif "mail" in msg:
+            error_label.configure(text=msg, text_color="red")
         else:
             error_label.configure(text=f"wait {30 - int(float(msg))} seconds before asking again", text_color="red")
     else:  # case of try to verify request
@@ -322,6 +328,8 @@ def handle_verify(args):
             error_label.configure(text="code was expired")
         elif msg == "false":
             error_label.configure(text="code is not matching")
+        elif msg == "email":
+            error_label.configure(text_color="no email was set")  # shouldn't get here
         else:
             error_label.configure(text="no code was generated")
 
