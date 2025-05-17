@@ -2,6 +2,15 @@ import os
 import sqlite3
 import bcrypt
 import json
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+# Email credentials and settings
+smtp_server = "smtp.gmail.com"
+smtp_port = 465
+email_sender = input("enter the no-reply email: ")
+application_password = input("enter the application password/password of your email: ")
 
 
 class DatabaseConnection:
@@ -13,7 +22,8 @@ class DatabaseConnection:
     def initiate_db(self):
         command = ("CREATE TABLE clients (\n"
                    "    user_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
-                   "    email TEXT UNIQUE NOT NULL,\n"
+                   "    email TEXT UNIQUE DEFAULT NULL,\n"
+                   "    username TEXT UNIQUE NOT NULL,\n"
                    "    role TEXT NOT NULL,\n"
                    "    password_hash TEXT NOT NULL,\n"
                    "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,\n"
@@ -34,9 +44,10 @@ if __name__ != '__main__':
 
 
 class Client:
-    def __init__(self, email, password: str):
+    def __init__(self, username, password: str):
         self._verified = None
-        self._email = email
+        self._username = username
+        self.email = None
         self._password = password
         self.role = None
         self._user_id = None
@@ -48,8 +59,8 @@ class Client:
         self.cursor = self.conn.cursor()
 
     @property
-    def email(self):
-        return self._email
+    def username(self):
+        return self._username
 
     @property
     def password(self):
@@ -74,12 +85,18 @@ class Client:
     def get_user_id(self):
         """Assume user is logged"""
         if not self._user_id:
-            self.cursor.execute("SELECT user_id FROM clients WHERE email=:email", {"email": self._email})
+            self.cursor.execute("SELECT user_id FROM clients WHERE username=:username", {"username": self._username})
             self._user_id = self.cursor.fetchone()[0]
         return self._user_id
 
     def is_registered(self) -> bool:
-        self.cursor.execute("SELECT * From clients WHERE email=:email", {"email": self._email})
+        self.cursor.execute("SELECT * From clients WHERE username=:username", {"username": self._username})
+        ans = self.cursor.fetchall()
+        return bool(ans)
+
+    def is_email_registered(self, email) -> bool:
+        """"""
+        self.cursor.execute("SELECT * From clients WHERE email=:email", {"email": email})
         ans = self.cursor.fetchall()
         return bool(ans)
 
@@ -98,20 +115,25 @@ class Client:
 
     def insert_client(self):
         """
-        insert the new client, with no checking if email already in use, or any other validation
+        insert the new client, with no checking if username already in use, or any other validation
         """
         hashed_pass = bcrypt.hashpw(self._password.encode(), bcrypt.gensalt())
         with self.conn:
-            self.cursor.execute("INSERT INTO clients (email, password_hash, role) VALUES (:email, :hash_pass, 'user')",
-                                {"email": self._email, "hash_pass": hashed_pass})
+            self.cursor.execute(
+                "INSERT INTO clients (username, password_hash, role) VALUES (:username, :hash_pass, 'user')",
+                {"username": self._username, "hash_pass": hashed_pass})
         self.role = "user"
 
     def set_verified(self):
         """Assume user has done the things necessary to be verified"""
-        with self.conn:
-            self.cursor.execute("UPDATE clients SET is_verified=TRUE WHERE user_id=:user_id",
-                                {"user_id": self._user_id})
-        self._verified = True
+        if self.email:
+            with self.conn:
+                self.cursor.execute("UPDATE clients SET is_verified=TRUE, email=:email WHERE user_id=:user_id",
+                                    {"user_id": self._user_id, "email": self.email})
+            self._verified = True
+            return True
+        else:
+            return False
 
     def set_active(self):
         with self.conn:
@@ -124,12 +146,38 @@ class Client:
             self.cursor.execute("UPDATE clients SET is_active=FALSE, last_login=CURRENT_TIMESTAMP WHERE user_id=:id",
                                 {"id": self._user_id})
 
+    def send_code(self):
+        if self.email:
+            with open("email_content.html", "r") as f:
+                html_content = f.read()
+                html_content = html_content.replace("-code-", self.code[0])
+                html_content = html_content.replace("-name-", self.username)
+
+            # Create the email
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = "Verify by Code"
+            msg["From"] = email_sender
+            msg["To"] = self.email
+
+            mime_html = MIMEText(html_content, "html")
+            msg.attach(mime_html)
+
+            # Send the email
+            try:
+                with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
+                    server.login(email_sender, application_password)
+                    server.sendmail(email_sender, self.email, msg.as_string())
+                print("Email sent successfully.")
+            except Exception as e:
+                print(f"An error occurred: {e}")
+
     def query_clients(self, **filters):
         """commands for admins"""
         if not self.is_verified:
             return None
         cols = [
             "user_id",
+            "username"
             "email",
             "role",
             "created_at",
@@ -144,12 +192,13 @@ class Client:
         valid_filters = {
             "is_active": "is_active = ?",
             "is_verified": "is_verified = ?",
+            "username": "username LIKE ?",
             "email": "email LIKE ?",
             "role": "role = ?",
             "created_after": "created_at >= ?",
             "created_before": "created_at <= ?"
         }
-        if "email" not in filters.keys() and "none" not in filters.keys():
+        if "email" not in filters.keys() and "none" not in filters.keys() and "username" not in filters.keys():
             for key, value in filters.items():
                 if key in valid_filters and value is not None:
                     conditions.append(valid_filters[key])
@@ -162,6 +211,9 @@ class Client:
         elif "email" in filters.keys():
             base_query += " WHERE " + valid_filters["email"]
             params.append(filters.get("email"))
+        elif "username" in filters.keys():
+            base_query += " WHERE " + valid_filters["username"]
+            params.append(filters.get("username"))
 
         print(f"query: '{base_query}', ({params})")
         self.cursor.execute(base_query, params)
@@ -180,7 +232,7 @@ if __name__ == '__main__':
     if not client.is_registered():
         client.insert_client()
     print("check if logged in:", client.valid_login())
-    print("noam's ID:", client.get_user_id())
+    print("x's ID:", client.get_user_id())
 
     # log into noam
     new_client = Client("email@noam.com", "1234")  # wrong password
@@ -193,7 +245,7 @@ if __name__ == '__main__':
     new_client = Client("jonathan@comcom.asd", " ")
     if not new_client.is_registered():
         new_client.insert_client()
-    print("new client's ID:", new_client.get_user_id(), end="\t"*5)
+    print("new client's ID:", new_client.get_user_id(), end="\t" * 5)
     print("None if wasn't created")
     print()
 
