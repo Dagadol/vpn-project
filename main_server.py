@@ -2,18 +2,18 @@ from collections import defaultdict
 import random
 import socket
 import threading
-
+import re
 import connect_protocol
 import db_communication
 import time
 
-# this_ip = "10.0.0.12"
-this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
+this_ip = "10.0.0.10"
+# this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
 
 client_port = 5500
 port_for_vpn = 8888
 # {VPN IP: country} - Any is default for all countries
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "172.29.168.164": "Israel"}
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.10": "Israel"}
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -222,7 +222,7 @@ def try_signup(client) -> bool:
         # already registered
         return False
 
-    client.insert_client()
+    client.insert_client()  # already setting the role
     client.get_user_id()  # set ID
     return True
 
@@ -230,8 +230,10 @@ def try_signup(client) -> bool:
 def refresh_countries(skt, this_client):
     if this_client.is_verified:
         countries = [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
-        countries = "~".join(countries)  # maybe later use json to wrap this
-        # skt.send(connect_protocol.create_msg(countries, "countries"))
+        if not countries:
+            countries = "none"
+        else:
+            countries = "~".join(countries)  # maybe later use json to wrap this
         data = connect_protocol.create_msg(countries, "countries")
         send_atomic(skt, data)
         return True
@@ -257,8 +259,8 @@ def handle_login(skt, addr, client_id):
             break
 
         print("cmd:", cmd, "msg:", msg)
-        email, password = msg.split("~")
-        this_client = db_communication.Client(email, password)
+        username, password = msg.split("~")
+        this_client = db_communication.Client(username, password)
 
         if cmd == "login":
             login = try_login(this_client)
@@ -328,18 +330,23 @@ def send_to_email(client: db_communication.Client):  # todo
     client_email = client.email
 
 
-def generate_new_code(client: db_communication.Client) -> str:
+def generate_new_code(client: db_communication.Client, email) -> str:
     def generate():
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+            return "Invalid email address"
+        elif client.is_email_registered(email):
+            return "Email is in use"
+        client.email = email
         client.code = (str(random.randint(100000, 999999)), time.time(), 0)
         print(f"code: {client.code}")
+        client.send_code()
+        return "true"
         # send_to_email(client)
 
     if not client.code:
-        generate()
-        return "true"
+        return generate()
     elif time.time() - client.code[1] > 30:
-        generate()
-        return "true"
+        return generate()
     else:
         return str(time.time() - client.code[1])
 
@@ -348,8 +355,11 @@ def try_verify(client, code: str) -> str:
     if client.code:  # if client has a code
         if time.time() - client.code[1] < 30 and client.code[2] < 3:  # if code is not expired (under 30 seconds)
             if client.code[0] == code:
-                client.set_verified()
-                return "true"
+                status = client.set_verified()
+                if status:
+                    return "true"
+                else:
+                    return "email"
             client.code = (client.code[0], client.code[1], client.code[2] + 1)
             return "false"
         return "exp"
@@ -394,9 +404,9 @@ def handle_client(skt, addr, client_id, client: db_communication.Client):
             handle_admin(msg, client, skt)
         elif cmd == "verify":
             if not client.is_verified:
-                if msg == "new":
-                    # skt.send(connect_protocol.create_msg(generate_new_code(client), "verify"))
-                    send_atomic(skt, connect_protocol.create_msg(generate_new_code(client), "verify"))
+                if "new" in msg:
+                    send_atomic(skt, connect_protocol.create_msg(generate_new_code(client, msg.split("~")[1]),
+                                                                 "verify"))
                 else:
                     # skt.send(connect_protocol.create_msg(try_verify(client, msg), "verify"))
                     send_atomic(skt, connect_protocol.create_msg(try_verify(client, msg), "verify"))
