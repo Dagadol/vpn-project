@@ -25,7 +25,7 @@ class CommandHandler:
         while self.on:
             if event is not None:
                 if event.is_set():
-                    print("got event")
+                    print("successfully stopped listening (as it should)")
                     break
 
             cmd, msg = get_msg(skt)  # msg: to_whom_thread~data~from_whom_thread
