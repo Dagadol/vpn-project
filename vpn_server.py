@@ -2,6 +2,8 @@ import os
 import threading
 import socket
 import random
+from collections import defaultdict
+
 import psutil  # used for calculating load
 from scapy_server import OpenServer, tcp_connection
 import connect_protocol
@@ -9,10 +11,10 @@ import connect_protocol
 
 # server_ip = "172.29.168.164"
 # my_ip = "172.29.149.44"
-server_ip = "10.0.0.11"
+server_ip = "10.0.0.10"
 my_ip = ""  # used for communication for VPN e.g. ZeroTier
 
-my_private_ip = "10.0.0.11"  # physical
+my_private_ip = "10.0.0.10"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -25,13 +27,27 @@ handler = connect_protocol.CommandHandler()  # command waiting list
 vpn = OpenServer(my_private_ip, udp_port, user_amount=len(ADDRESSES), this_server_ip=my_ip)
 on = True
 
+server_handler = connect_protocol.CommandHandler()  # command waiting list
+socket_locks = defaultdict(threading.Lock)
+
+
+def send_atomic(skt, data):
+    with socket_locks[skt]:
+        skt.send(data)
+
+
+def close_socket(skt):
+    skt.close()
+    if skt in socket_locks:
+        del socket_locks[skt]
+
 
 def handle_checkup(my_socket, msg):
     thread_part = msg.split("~")[1]  # f"from_id:{num}"
     thread_part = f"to_{thread_part.split("_")[1]}"  # f"to_id:{num}"
 
     if not available:  # no space left
-        my_socket.send(connect_protocol.create_msg(f"{thread_part}~invalid space", "checkup0"))
+        send_atomic(my_socket, connect_protocol.create_msg(f"{thread_part}~invalid space", "checkup0"))
         return False
 
     # remove the space before you take space_left
@@ -44,7 +60,7 @@ def handle_checkup(my_socket, msg):
     data = f"{thread_part}~{space_left}~{load}~from_id:{this_thread}"  # add thread id to the end of data
 
     # send data ASAP
-    my_socket.send(connect_protocol.create_msg(msg=data, cmd="checkup"))
+    send_atomic(my_socket, connect_protocol.create_msg(msg=data, cmd="checkup"))
 
     # get data back
     cmd, msg = handler.get_thread_data(my_socket, this_thread)
@@ -64,7 +80,7 @@ def handle_checkup(my_socket, msg):
 
         my_password = os.urandom(16).hex()
         data = f"{thread_part}~{tcp_port}~{v_addr}~{my_password}"
-        my_socket.send(connect_protocol.create_msg(data, "checkup1"))
+        send_atomic(my_socket, connect_protocol.create_msg(data, "checkup1"))
 
         # add new client
         vpn.clients[v_addr] = (client_ip, client_port)
@@ -90,7 +106,7 @@ def try_remove(skt, msg):
         handle_remove(skt, f"{v_addr[0]}~{thread_msg}")
     else:
         f"to_{thread_msg.split("_")[1]}"
-        skt.send(connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
+        send_atomic(skt, connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
 
 
 def handle_remove(skt, msg):
@@ -99,7 +115,7 @@ def handle_remove(skt, msg):
     thread_msg = f"to_{thread_msg.split("_")[1]}"
 
     if v_addr not in vpn.clients:
-        skt.send(connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
+        send_atomic(skt, connect_protocol.create_msg(f"{thread_msg}~user does not exit", "error"))
         print("user does not exit")
     ip = vpn.clients[v_addr][0]  # client's ip
 
@@ -112,7 +128,7 @@ def handle_remove(skt, msg):
     available.append(v_addr)
 
     # ack
-    skt.send(connect_protocol.create_msg(f"{thread_msg}~the user has been removed", "remove"))
+    send_atomic(skt, connect_protocol.create_msg(f"{thread_msg}~the user has been removed", "remove"))
 
     if not vpn.clients:  # close connection if needed (case no clients)
         vpn.close_conn()
@@ -140,9 +156,9 @@ def handle_shutdown(skt):
     if not data:  # if no users connected
         data = "none"
 
-    skt.send(connect_protocol.create_msg(data, "shutdown"))
+    send_atomic(skt, connect_protocol.create_msg(data, "shutdown"))
     # close connection
-    skt.close()
+    close_socket(skt)
 
 
 def handle_server(my_socket):
@@ -170,6 +186,9 @@ def main():
 
     my_socket.connect((server_ip, server_port))
     my_socket.settimeout(5)
+
+    socket_locks[my_socket] = threading.Lock()
+
     # TODO: add encryptions here
     # good place to apply RSA encryption to exchange keys
     # let the server know about the Main thread ID
