@@ -24,15 +24,13 @@ def block_buttons(tabs, state: str = "disabled"):
             block_buttons(widget, state)
 
 
-def valid_params(email: str, password: str) -> str:
-    if not email or not password:
+def valid_params(username: str, password: str) -> str:
+    if not username or not password:
         return "An entry was left unfilled"
-    if "~" in "".join([email, password]):
+    if "~" in "".join([username, password]):
         return "Invalid character '~' in one of the entries"
     if len(password) < 3:
         return "Password is too short"
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-        return "Invalid email address"
     return "OK"
 
 
@@ -97,7 +95,10 @@ class AppGUI(customtkinter.CTk):
                 # receive countries
                 cmd, msg = self.receiver.get_thread_data(self.socket)
                 if cmd == "countries":
-                    self.countries = ["Any"] + msg.split("~")
+                    if msg == "none":
+                        self.countries = ["Any"]
+                    else:
+                        self.countries = ["Any"] + msg.split("~")
 
             self.clear_window()
             self.main()
@@ -138,7 +139,7 @@ class AppGUI(customtkinter.CTk):
         entries_frame.grid_columnconfigure(1, weight=1)
 
         # Create the shared email and password entry fields.
-        email_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your Email...")
+        email_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your username...")
         email_entry.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         password_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your password...", show="*")
@@ -240,7 +241,7 @@ class AppGUI(customtkinter.CTk):
             )
             self.country_menu.set(self.selected_country)  # sets default
             self.country_menu.place(x=200, y=90)
-            refresh_btn.place(x=250, y=90)
+            refresh_btn.place(x=450, y=90)
 
         connect_btn.place(x=40, y=50)
         disconnect_btn.place(x=40, y=120)
@@ -295,26 +296,36 @@ class AppGUI(customtkinter.CTk):
             self.clear_window()
             self.main()
 
-        def send_code():
-            error_label.configure(text="", text_color="red")
-            code = code_entry.get()
+        def send_code(cmd):
+            if cmd == "check":
+                error_label.configure(text="", text_color="red")
+                code = code_entry.get()
 
-            if len(code) != 6 or [num for num in code if num not in "0123456789"]:
-                error_label.configure(text="invalid code, format is 6 digits")
-            else:
-                self.middle_function("verify", self, code)
+                if len(code) != 6 or [num for num in code if num not in "0123456789"]:
+                    error_label.configure(text="invalid code, format is 6 digits")
+                else:
+                    self.middle_function("verify", self, code)
+            elif cmd == "new":
+                email = email_entry.get()
+                if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+                    error_label.configure(text="Invalid email address", text_color="red")
+                else:
+                    args = f"new~{email}"
+                    self.middle_function("verify", self, args)
 
         self.dynamic_elements["context"] = "verify"
         self.clear_window()
+        email_entry = customtkinter.CTkEntry(self, placeholder_text="enter your email here")
         code_entry = customtkinter.CTkEntry(self, placeholder_text="enter code here")
-        submit_code = customtkinter.CTkButton(self, text="Submit code", command=send_code)
+        submit_code = customtkinter.CTkButton(self, text="Submit code", command=lambda: send_code("check"))
         error_label = customtkinter.CTkLabel(self, text="Enter the code from email below")
         get_code_btn = customtkinter.CTkButton(self, text="Resend code",
-                                               command=lambda: self.middle_function("verify", self, "new"))
+                                               command=lambda: send_code("new"))
         return_btn = customtkinter.CTkButton(self, text="Back", command=go_back)
 
+        email_entry.place(relx=0.6, rely=0.6, anchor="center")
         error_label.place(relx=0.5, rely=0.5, anchor="center")
-        code_entry.place(relx=0.5, rely=0.6, anchor="center")
+        code_entry.place(relx=0.4, rely=0.6, anchor="center")
         get_code_btn.place(relx=0.25, rely=0.85, anchor="w")
         submit_code.place(relx=0.75, rely=0.85, anchor="e")
         return_btn.place(relx=0.25, rely=0.1, anchor="e")
