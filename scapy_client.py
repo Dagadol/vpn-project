@@ -1,18 +1,40 @@
+import ssl
 import socket
 import hashlib
 import threading
 import time
 
-# from scapy.compat import raw
 from scapy.config import conf
-from scapy.all import sniff, send
+from scapy.all import sniff
 from scapy.arch.windows import get_windows_if_list
-from scapy.layers.inet import IP
+from scapy.layers.inet import IP, UDP, TCP
+from scapy.layers.l2 import Ether  # used when injecting the traffic to the physical interface
 
 import gui_master
 import connect_protocol
-import nat_class
 from adapter_conf import get_private_ip, get_physical_private_ip
+
+
+def tcp_udp(p):
+    """
+    get the TCP/UDP layer of the packet.
+    :param p: packet in scapy structure
+    :return: fourth layer of the packet
+    """
+    if IP in p:
+        if UDP in p:
+            return p[UDP]
+        elif TCP in p:
+            return p[TCP]
+    print("problems with the transport layer of the packet")
+    try:
+        return p[UDP]
+    except IndexError:
+        try:
+            return p[TCP]
+        except IndexError:
+            print("problematic packet is:", p)
+            return None
 
 
 class VPNClient:
@@ -166,7 +188,7 @@ class VPNClient:
         if IP in pkt:
             try:
                 return (pkt.src == self.virtual_adapter_ip and
-                        nat_class.tcp_udp(pkt).dport != self.vpn_port)
+                        tcp_udp(pkt).dport != self.vpn_port)
             except AttributeError:
                 return False
         return False
@@ -206,13 +228,16 @@ class VPNClient:
         i = 1
         conf.ifaces.reload()
         time.sleep(2)
-        # raw_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-        # raw_sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-        iface = [iface["description"] for iface in get_windows_if_list() if "127.0.0.1" in iface.get("ips", [])][0]
+
+        # ip = get_physical_private_ip()
+        ip = "127.0.0.1"
+        # mac = [iface["mac"] for iface in get_windows_if_list() if ip in iface.get("ips", [])][0]
+        iface = [iface["description"] for iface in get_windows_if_list() if ip in iface.get("ips", [])][0]
         print(f"iface: {iface}")
         try:
             scapy_socket = conf.L3socket(iface=iface)
         except OSError:
+            print("failed to connect to iface by iface description; trying by loopback_name")
             scapy_socket = conf.L3socket(iface=conf.loopback_name)
         while self.active:
             i += 1
@@ -229,24 +254,12 @@ class VPNClient:
                     continue
 
                 decrypted = connect_protocol.decrypt(encrypted, self.key)
+                # pkt = Ether(dst=mac) / IP(decrypted)
+                # del pkt[IP].chksum
                 pkt = IP(decrypted)
 
-                self.gui.logger.info(str(pkt) + "pkt_log")  # Log the packet
-
-                # print(f"received packet: {pkt}")
-                # raw_sock.sendto(raw(pkt), (self.virtual_adapter_ip, 0))  # doesn't work
-                # raw_sock.sendto(raw(pkt), ("127.0.0.1", 0))  # doesn't work
-                # iface = conf.ifaces.dev_from_index(30)  # doesn't work
-                # iface = "WireGuard Tunnel"  # doesn't work
-                # iface = self.virtual_adapter_name  # doesn't work
-                # iface = conf.ifaces.dev_from_index(1)  # loopback by index -- works with scapy_socket
-                # iface = 'Software Loopback Interface 1'  # works with the scapy_socket
                 scapy_socket.send(pkt)
-                # send(pkt, iface=iface, verbose=False)
-
-                # send(pkt, iface='Software Loopback Interface 1', verbose=False)
-                # send(pkt, iface=self.virtual_adapter_name, verbose=False)
-                # print(f"Self injected packet: {pkt.summary()}")
+                self.gui.logger.info(str(pkt) + "pkt_log")  # Log the packet
 
             except (socket.timeout, ValueError):
                 continue
