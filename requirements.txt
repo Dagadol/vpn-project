@@ -1,0 +1,4 @@
+scapy==2.5.0
+customtkinter>=5.0.0
+cryptography>=40.0.0
+netifaces>=0.11.0
