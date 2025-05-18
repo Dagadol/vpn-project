@@ -4,6 +4,7 @@ import subprocess
 import socket
 import threading
 import time
+import ssl
 
 import adapter_conf
 import connect_protocol
@@ -24,8 +25,12 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.10", 5500)  # main server connection
 # main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
+main_server_addr = ("10.0.0.10", 5500)  # main server connection
+context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+context.check_hostname = False  # We're connecting by IP
+context.verify_mode = ssl.CERT_REQUIRED
+context.load_verify_locations('server.crt')  # Trust this cert
 
 adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
@@ -379,23 +384,22 @@ def wait_for_command_gui(skt):
 
 def main():
     global key
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
-        skt.connect(main_server_addr)
-        # skt.settimeout(10)
+    with socket.create_connection(main_server_addr) as skt:
+        secure_skt = context.wrap_socket(skt, server_hostname=main_server_addr[0])
         print("Connected to main server")
 
-        t_wait = threading.Thread(target=server_connection, args=[skt], daemon=True)
+        t_wait = threading.Thread(target=server_connection, args=[secure_skt], daemon=True)
         t_wait.start()
 
         while not key:
             time.sleep(0.1)
 
-        t_listen = threading.Thread(target=client_handler.listen_for_commands, args=[skt])
+        t_listen = threading.Thread(target=client_handler.listen_for_commands, args=[secure_skt])
         t_listen.start()
         t_command_handler = threading.Thread(target=handle_command_queue)  # maybe set as a daemon
         t_command_handler.start()
 
-        wait_for_command_gui(skt)
+        wait_for_command_gui(secure_skt)
 
         t_command_handler.join()
         print("all task are done")
@@ -403,6 +407,7 @@ def main():
         client_handler.turn_off()
         t_listen.join()
 
+        secure_skt.close()
     print("Connection closed")
 
 
