@@ -1,3 +1,4 @@
+import ssl
 from collections import defaultdict
 import random
 import socket
@@ -21,6 +22,8 @@ client_dict = dict()  # {client ID: (socket, thread)}
 
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 socket_locks = defaultdict(threading.Lock)
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(certfile="server.crt", keyfile="server.key")
 
 
 def send_atomic(skt, data):
@@ -473,8 +476,10 @@ def listen_for_servers():
     print("VPNs socket is up")
 
     servers_socket.listen(2)  # two servers
+    secure_socket = context.wrap_socket(servers_socket, server_side=True)
+
     while True:
-        vpn_sock, addr = servers_socket.accept()
+        vpn_sock, addr = secure_socket.accept()
 
         # check if IP address is valid
         if len(list_of_allowed_VPNs) > 1:  # if list was created with values
@@ -500,11 +505,13 @@ def listen_for_clients():
     print("client socket is up")
 
     clients_socket.listen(5)
+    secure_socket = context.wrap_socket(clients_socket, server_side=True)
+
     threads = []
     this_id = 0
     while True:
         this_id += 1  # update ID for each user
-        client_socket, addr = clients_socket.accept()  # wait for user
+        client_socket, addr = secure_socket.accept()  # wait for user
         client_socket.settimeout(10)
 
         socket_locks[client_socket] = threading.Lock()
