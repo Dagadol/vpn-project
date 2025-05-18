@@ -3,8 +3,9 @@ import threading
 import socket
 import random
 from collections import defaultdict
-
+import ssl
 import psutil  # used for calculating load
+
 from scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
@@ -29,6 +30,11 @@ on = True
 
 server_handler = connect_protocol.CommandHandler()  # command waiting list
 socket_locks = defaultdict(threading.Lock)
+
+context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+context.check_hostname = False  # We're connecting by IP
+context.verify_mode = ssl.CERT_REQUIRED
+context.load_verify_locations('server.crt')  # Trust this cert
 
 
 def send_atomic(skt, data):
@@ -182,26 +188,26 @@ def handle_server(my_socket):
 
 
 def main():
-    my_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    my_socket = socket.create_connection((server_ip, server_port))
+    secure_skt = context.wrap_socket(my_socket, server_hostname=server_ip)
+    secure_skt.settimeout(5)
 
-    my_socket.connect((server_ip, server_port))
-    my_socket.settimeout(5)
-
-    socket_locks[my_socket] = threading.Lock()
+    socket_locks[secure_skt] = threading.Lock()
 
     # TODO: add encryptions here
     # good place to apply RSA encryption to exchange keys
     # let the server know about the Main thread ID
     # my_socket.send(connect_protocol.create_msg(), "vpn_in"))
 
-    threading.Thread(target=handler.listen_for_commands, args=[my_socket]).start()
+    threading.Thread(target=handler.listen_for_commands, args=[secure_skt]).start()
     print("listening for commands")
     try:
-        handle_server(my_socket)
+        handle_server(secure_skt)
     except (KeyboardInterrupt, Exception):
         print("VPN server is shutting down")
     finally:
-        handle_shutdown(my_socket)
+        handle_shutdown(secure_skt)
+        my_socket.close()
 
 
 if __name__ == '__main__':
