@@ -15,7 +15,7 @@ def name_by_ip(ip):
         return None
 
 
-class OpenServer:
+class OpenServer(nat_class.ClassNAT):
     def __init__(self, private_ip, server_port, user_amount, clients: dict = None, keys: dict = None,
                  this_server_ip: str = ""):
         # default_clients = {"10.0.0.50": ("10.0.0.11", 8800)}  # virtual adapter: (skt.ip, skt.port)
@@ -30,10 +30,7 @@ class OpenServer:
 
         # if clients is None. create a value, and enter it the nat class
         # in order to make the nat.users_addr point at self.clients
-        #if clients is None:
-        #    self.clients["1"] = "2"
-        self.nat = nat_class.ClassNAT(my_ip=private_ip, users_amount=user_amount, users=self.clients)
-        #del clients["1"]
+        super().__init__(my_ip=private_ip, users_amount=user_amount, users=clients)
 
         self.keys = dict()
         if keys is not None:
@@ -52,10 +49,9 @@ class OpenServer:
         if not (self.t_recv and self.t_send) or not self.conn:
             self.conn = True
             # self.clients = clients
-            # self.nat.users_addr = self.clients
             self.t_recv = threading.Thread(target=self.internet_recv, daemon=True)
             self.t_send = threading.Thread(target=self.internet_send, daemon=True)
-            self.t_cleanup = threading.Thread(target=self.nat.cleanup_nat_table, daemon=True)
+            self.t_cleanup = threading.Thread(target=self.cleanup_nat_table, daemon=True)
 
             self.skt = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.skt.bind((self.my_ip, self.udp_port))
@@ -64,14 +60,14 @@ class OpenServer:
             # start threads
             self.t_recv.start()
             self.t_send.start()
-            self.nat.cleanup = True
+            self.cleanup = True
             self.t_cleanup.start()
 
     def close_conn(self):
         print("closing connection")
         if self.conn:
             self.conn = False
-            self.nat.cleanup = False
+            self.cleanup = False
 
             # close threads
             try:
@@ -91,11 +87,11 @@ class OpenServer:
             print("connection has closed")
 
     def remove_client(self, v_addr):
-        a = self.nat.users_addr.pop(v_addr, None)
-        a = self.clients.pop(v_addr, None)
+        self.users_addr.pop(v_addr, None)
+        self.clients.pop(v_addr, None)
 
     def update_addr(self):
-        self.nat.users_addr = self.clients
+        self.users_addr = self.clients
 
     def valid(self, data: bytes, addr) -> bytes | bool:
         if addr not in self.keys:
@@ -129,7 +125,7 @@ class OpenServer:
             pkt = self.valid(data, addr[0])
             # print(f"pkt received: {pkt}")
             if pkt:
-                new_pkt = self.nat.udp_recv(pkt, addr)
+                new_pkt = self.udp_recv(pkt, addr)
 
                 if new_pkt:
                     new_pkt = IP(new_pkt)
@@ -141,7 +137,7 @@ class OpenServer:
 
     def forward_to_client(self, pkt):
         # print(f"pkt from internet {pkt}")
-        updated_pkt, addr = self.nat.internet_recv(pkt)
+        updated_pkt, addr = self.internet_recv(pkt)
         if updated_pkt and addr:
             # print("returning to client:", updated_pkt)
 
