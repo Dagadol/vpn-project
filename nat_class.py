@@ -4,28 +4,6 @@ from scapy.layers.inet import IP, UDP, TCP
 import time
 
 
-def tcp_udp(p):
-    """
-    get the TCP/UDP layer of the packet.
-    :param p: packet in scapy structure
-    :return: fourth layer of the packet
-    """
-    if IP in p:
-        if UDP in p:
-            return p[UDP]
-        elif TCP in p:
-            return p[TCP]
-    print("problems with the transport layer of the packet")
-    try:
-        return p[UDP]
-    except IndexError:
-        try:
-            return p[TCP]
-        except IndexError:
-            print("problematic packet is:", p)
-            return None
-
-
 class ClassNAT:
     def __init__(self, my_ip, users_amount: int, users=None):
         # if users:  # todo, i should be the one to assign IPs to the virtual adapters
@@ -84,7 +62,7 @@ class ClassNAT:
                 print("spoof attack, from:", addr)
                 return None
             try:
-                packet_layer4 = tcp_udp(packet_data)
+                packet_layer4 = self.tcp_udp(packet_data)
                 if not packet_layer4:
                     return None
                 info_address = (packet_source, packet_layer4.sport)
@@ -145,7 +123,7 @@ class ClassNAT:
             return None, None
 
         # get layer 4 of the packet  (UDP/TCP)
-        layer4 = tcp_udp(scapy_packet)
+        layer4 = self.tcp_udp(scapy_packet)
         if not layer4:
             print("invalid internet packet struct:", scapy_packet)
             return None, None
@@ -222,3 +200,24 @@ class ClassNAT:
                 print(f"Cleanup: Removed {cleaned_up} entries")
             print(f"entries amount: {len(self.nat_table)}")
 
+    @staticmethod
+    def tcp_udp(p):
+        """
+        get the TCP/UDP layer of the packet.
+        :param p: packet in scapy structure
+        :return: fourth layer of the packet
+        """
+        if IP in p:
+            if UDP in p:
+                return p[UDP]
+            elif TCP in p:
+                return p[TCP]
+        print("problems with the transport layer of the packet")
+        try:
+            return p[UDP]
+        except IndexError:
+            try:
+                return p[TCP]
+            except IndexError:
+                print("problematic packet is:", p)
+                return None
