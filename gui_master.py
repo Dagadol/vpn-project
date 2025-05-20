@@ -184,15 +184,15 @@ class AppGUI(customtkinter.CTk):
             email_entry.place(x=80, y=60)
 
             # Name search
-            # customtkinter.CTkLabel(admin_tab, text="Name:").place(x=20, y=100)
-            # name_entry = customtkinter.CTkEntry(admin_tab, width=200)
-            # name_entry.place(x=80, y=100)
+            customtkinter.CTkLabel(admin_tab, text="Name:").place(x=20, y=100)
+            name_entry = customtkinter.CTkEntry(admin_tab, width=200)
+            name_entry.place(x=80, y=100)
 
-            cols = ("user_id", "email", "role", "created_at", "last_login", "is_verified", "is_active")
+            cols = ["user_id", "username", "email", "role", "created_at", "last_login", "is_verified", "is_active"]
             user_tree = ttk.Treeview(admin_tab, columns=cols, show='headings', height=8)
             for col in cols:
                 user_tree.heading(col, text=col.capitalize())
-                user_tree.column(col, width=100, anchor='center')
+                user_tree.column(col, width=80, anchor='center')
             user_tree.place(x=20, y=180, relwidth=0.9)
             self.dynamic_elements['user_tree'] = user_tree
 
@@ -204,6 +204,9 @@ class AppGUI(customtkinter.CTk):
                 show_all = show_all_var.get()
                 if show_all:
                     filters["none"] = True
+
+                if name_entry.get():
+                    filters['username'] = name_entry.get()
 
                 if email_entry.get():
                     filters['email'] = email_entry.get()
