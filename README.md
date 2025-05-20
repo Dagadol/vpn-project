@@ -40,6 +40,7 @@ A Python-based VPN simulation framework, designed for Windows only, with client 
 - Python 3.9+.
 - Administrator privileges (to load and control virtual adapters).
 - Npcap installed in WinPcap compatibility mode.
+- Wireguard windows client is installed.
 
 ---
 
@@ -65,7 +66,7 @@ A Python-based VPN simulation framework, designed for Windows only, with client 
    ```powershell
    pip install -r requirements.txt
    ```
-
+5. **Install Wireguard windows client**: Download and install from https://download.wireguard.com/windows-client/.
 ---
 
 ## ⚙️ Configuration
@@ -141,17 +142,12 @@ All required Python packages are listed in `requirements.txt`.
 4. Push to the branch (`git push origin feature/foo`)
 5. Open a Pull Request
 
----
-
-## 📄 License
-
-MIT License. See [LICENSE](LICENSE) for details.
 
 ````
 
 # requirements.txt
 ```text
-scapy>=2.4.0
+scapy==2.5.0
 customtkinter>=5.0.0
 cryptography>=40.0.0
 netifaces>=0.11.0
