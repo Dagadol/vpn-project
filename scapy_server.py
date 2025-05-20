@@ -49,7 +49,7 @@ class OpenServer(nat_class.ClassNAT):
         if not (self.t_recv and self.t_send) or not self.conn:
             self.conn = True
             # self.clients = clients
-            self.t_recv = threading.Thread(target=self.internet_recv, daemon=True)
+            self.t_recv = threading.Thread(target=self.internet_sniff, daemon=True)
             self.t_send = threading.Thread(target=self.internet_send, daemon=True)
             self.t_cleanup = threading.Thread(target=self.cleanup_nat_table, daemon=True)
 
@@ -151,7 +151,7 @@ class OpenServer(nat_class.ClassNAT):
 
             self.skt.sendto(data, addr)
 
-    def internet_recv(self):
+    def internet_sniff(self):
         while self.conn:
             # print("here")
             iface_name = name_by_ip(self.my_ip)  # might be a problem if iface ip is not the main physical
