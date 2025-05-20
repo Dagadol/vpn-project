@@ -177,7 +177,7 @@ class Client:
             return None
         cols = [
             "user_id",
-            "username"
+            "username",
             "email",
             "role",
             "created_at",
@@ -210,10 +210,10 @@ class Client:
                 base_query += " WHERE " + " AND ".join(conditions)
         elif "email" in filters.keys():
             base_query += " WHERE " + valid_filters["email"]
-            params.append(filters.get("email"))
+            params.append(f"%{filters.get("email")}")
         elif "username" in filters.keys():
             base_query += " WHERE " + valid_filters["username"]
-            params.append(filters.get("username"))
+            params.append(f"%{filters.get("username")}")
 
         print(f"query: '{base_query}', ({params})")
         self.cursor.execute(base_query, params)
