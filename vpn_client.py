@@ -25,8 +25,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-# main_server_addr = ("172.29.168.164", 5500)  # ZeroTier main server's IP
-main_server_addr = ("10.0.0.10", 5500)  # main server connection
+main_server_addr = ("10.0.0.12", 5500)  # main server connection
 context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 context.check_hostname = False  # We're connecting by IP
 context.verify_mode = ssl.CERT_REQUIRED
@@ -120,7 +119,6 @@ def handle_connect(skt) -> bool:
         # time.sleep(10)  # Critical for OS to recognize the interface
 
         current_client_port = port
-        # current_private_ip = adapter_conf.get_private_ip()
 
         # Create and start VPN client
         vpn_client = scapy_client.VPNClient(

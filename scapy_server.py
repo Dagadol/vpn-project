@@ -16,17 +16,13 @@ def name_by_ip(ip):
 
 
 class OpenServer(nat_class.ClassNAT):
-    def __init__(self, private_ip, server_port, user_amount, clients: dict = None, keys: dict = None,
-                 this_server_ip: str = ""):
+    def __init__(self, private_ip, server_port, user_amount, clients: dict = None, keys: dict = None):
         # default_clients = {"10.0.0.50": ("10.0.0.11", 8800)}  # virtual adapter: (skt.ip, skt.port)
         self.clients = clients  # v_addr: (user_ip, user_port)
         if self.clients is None:
             self.clients = dict()
 
-        if this_server_ip:
-            self.my_ip = this_server_ip
-        else:
-            self.my_ip = private_ip
+        self.my_ip = private_ip
 
         # if clients is None. create a value, and enter it the nat class
         # in order to make the nat.users_addr point at self.clients
@@ -218,14 +214,6 @@ def tcp_connection(client_ip, this_port, vpn: OpenServer, my_ip,
             # send over the udp port to the client of this VPN server
             data = connect_protocol.create_msg(str(vpn.udp_port), "f_conn", shared_key)  # f stands for first
             conn.send(data)
-
-            # get user's private IP
-            cmd, msg = connect_protocol.get_msg(conn, shared_key)
-            if cmd != "f_conn":
-                # deal with this error
-                pass
-
-            # Add user
 
             if not vpn.conn:  # activate the thread of vpn if it is not already activated
                 vpn.open_conn()

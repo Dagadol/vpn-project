@@ -8,13 +8,12 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.10"
-# this_ip = "172.29.168.164"  # Your main server's ZeroTier IP
+this_ip = "10.0.0.12"
 
 client_port = 5500
 port_for_vpn = 8888
 # {VPN IP: country} - Any is default for all countries
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.10": "Israel"}
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket

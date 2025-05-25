@@ -75,37 +75,6 @@ def get_default_gateway_grok():
         return None, None
 
 
-def find_zerotier_iface():
-    """
-    Search all interfaces for one whose name indicates a ZeroTier adapter.
-    Returns the interface name or None if not found.
-    """
-    for iface in get_windows_if_list():
-        if 'zerotier' in iface["name"].lower():  # might need to verify name is also found in `netsh interface ip conf`
-            return iface["guid"], iface["index"], iface["ips"][1]
-    return None, None, None
-
-
-def gw_by_guid(guid):
-    for key in list(netifaces.gateways()):
-        for value in netifaces.gateways()[key]:
-            if isinstance(value, list):
-                for element in value:
-                    if element[1] == guid:
-                        return element[0]  # default gateway of chosen guid
-            elif isinstance(value, tuple):
-                if value[1] == guid:
-                    return value[0]
-    return None  # should never get here
-
-
-def get_private_ip():
-    # _, _, ip = find_zerotier_iface()
-    # if not ip:
-    return get_physical_private_ip()
-    # return ip
-
-
 def get_physical_private_ip():
     default_guid = netifaces.gateways()["default"][netifaces.AF_INET][1]
     private_ip = netifaces.ifaddresses(default_guid)[netifaces.AF_INET][0]["addr"]
@@ -121,27 +90,7 @@ def add_static_route(dest_ip: str, gui=None, cmd: str = "add"):
     if gui:
         if not gui.active:  # meaning user chose to exit program
             gui = False
-    # Try ZeroTier first
-    # zt_iface, iface_index, gw_ip = find_zerotier_iface()
-    # if zt_iface:
-    """
-    if False:
-        return  # no need to assign a route***
 
-        # Use local ZT IP as the "gateway" for a direct route
-        addrs = netifaces.ifaddresses(zt_iface).get(netifaces.AF_INET, [])
-        if not addrs:
-            if gui:
-                gui.logger.warning(f"ZeroTier interface {zt_iface} has no IPv4 address; falling back.")
-            gw_ip, iface_idx = get_default_gateway_grok()
-        else:
-            if gw_ip.split(".")[1] != dest_ip.split(".")[1]:
-                gw_ip = gw_by_guid(zt_iface)  # zerotier gateway is not required***
-            if gui:
-                gui.logger.info(f"Routing {dest_ip} via ZeroTier iface {zt_iface} (index {iface_index}).")
-    else:
-    """
-    # No ZT; fall back
     gw_ip, iface_index = get_default_gateway_grok()
     if gui:
         gui.logger.info(f"Routing {dest_ip} via default gateway {gw_ip} (interface index {iface_index}).")

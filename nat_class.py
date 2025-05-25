@@ -221,6 +221,7 @@ class ClassNAT:
                 return None, None
 
 
+"""
 def temp_save(self=None, info_address=None, packet_data=None, packet_layer4=None, proto=None):
     if info_address not in self.nat_map.keys():
         # try assign a used port before pulling new one
@@ -243,3 +244,4 @@ def temp_save(self=None, info_address=None, packet_data=None, packet_layer4=None
         # append source info address, attach a unique public port, and add destination info
         self.nat_map[info_address] = (info_dest, public_port)
         self.rev_map[(public_port, proto)][info_dest] = info_address[:-1]
+"""

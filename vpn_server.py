@@ -10,12 +10,8 @@ from scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
 
-# server_ip = "172.29.168.164"
-# my_ip = "172.29.149.44"
-server_ip = "10.0.0.10"
-my_ip = ""  # used for communication for VPN e.g. ZeroTier
-
-my_private_ip = "10.0.0.10"  # physical
+server_ip = "10.0.0.12"
+my_private_ip = "10.0.0.12"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -25,7 +21,7 @@ available = list(reversed(ADDRESSES))
 clients = dict()  # v_addr: client_id
 handler = connect_protocol.CommandHandler()  # command waiting list
 # keys = dict()  # client_ip: key
-vpn = OpenServer(my_private_ip, udp_port, user_amount=len(ADDRESSES), this_server_ip=my_ip)
+vpn = OpenServer(my_private_ip, udp_port, user_amount=len(ADDRESSES))
 on = True
 
 server_handler = connect_protocol.CommandHandler()  # command waiting list
@@ -93,7 +89,8 @@ def handle_checkup(my_socket, msg):
         print(f"here: {vpn.clients}")
         vpn.update_addr()
 
-        status = tcp_connection(client_ip, tcp_port, vpn, my_ip, my_password, client_password_1, client_password_2)
+        status = tcp_connection(client_ip, tcp_port, vpn, my_private_ip, my_password, client_password_1,
+                                client_password_2)
         if status:
             return True
         else:
@@ -193,11 +190,6 @@ def main():
     secure_skt.settimeout(5)
 
     socket_locks[secure_skt] = threading.Lock()
-
-    # TODO: add encryptions here
-    # good place to apply RSA encryption to exchange keys
-    # let the server know about the Main thread ID
-    # my_socket.send(connect_protocol.create_msg(), "vpn_in"))
 
     threading.Thread(target=handler.listen_for_commands, args=[secure_skt]).start()
     print("listening for commands")

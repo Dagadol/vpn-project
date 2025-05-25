@@ -12,7 +12,7 @@ from scapy.layers.l2 import Ether  # used when injecting the traffic to the phys
 
 import gui_master
 import connect_protocol
-from adapter_conf import get_private_ip, get_physical_private_ip
+from adapter_conf import get_physical_private_ip
 
 
 def tcp_udp(p):
@@ -45,7 +45,7 @@ class VPNClient:
         self.virtual_adapter_name = virtual_adapter_name
         self.vpn_port = initial_vpn_port  # Will be updated during first connection
         self.my_port = client_port
-        self.private_ip = get_private_ip()  # private_ip
+        self.private_ip = get_physical_private_ip()  # private_ip
         self.gui = gui
 
         self.active = False
@@ -115,18 +115,6 @@ class VPNClient:
 
         # Update with negotiated port from server
         self.vpn_port = int(data)
-
-        # check if using ZeroTier
-        # IPs wouldn't match in case of ZeroTier is in use
-        # self.private_ip is zerotier then the physical_
-        temp_private_ip = get_physical_private_ip()
-        if self.private_ip != temp_private_ip:
-            data = f"true~{temp_private_ip}"  # uses ZeroTier
-        else:
-            data = f"false~{temp_private_ip}"  # Doesn't use ZeroTier
-        # in both cases the VPN server needs the client's private IP
-        # because to verify the packets
-        sock.send(connect_protocol.create_msg(data, "f_conn", key=shared_key))
 
         sock.close()
         return shared_key
