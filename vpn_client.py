@@ -25,7 +25,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.12", 5500)  # main server connection
+main_server_addr = ("10.0.0.17", 5500)  # main server connection
 context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 context.check_hostname = False  # We're connecting by IP
 context.verify_mode = ssl.CERT_REQUIRED
@@ -108,7 +108,8 @@ def handle_connect(skt) -> bool:
         return False
 
     # Parse server response
-    vpn_ip, vpn_port, vm_ip, server_code = msg.split("~")
+    vpn_ip, vpn_port, vm_ip, server_code, server_country = msg.split("~")
+    vpn_gui.logger.debug(f"Connecting to country: {server_country}")
 
     try:
         # Create virtual adapter
@@ -205,7 +206,9 @@ def handle_change(skt):
         return False
 
     # Parse new server details
-    new_vpn_ip, new_vpn_port, new_vm_ip, server_code = msg.split("~")
+    new_vpn_ip, new_vpn_port, new_vm_ip, server_code, server_country = msg.split("~")
+
+    vpn_gui.logger.debug(f"Connecting to country: {server_country}")
 
     try:
         # Update virtual adapter

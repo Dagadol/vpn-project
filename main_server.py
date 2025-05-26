@@ -8,12 +8,12 @@ import connect_protocol
 import db_communication
 import time
 
-this_ip = "10.0.0.12"
+this_ip = "10.0.0.17"
 
 client_port = 5500
 port_for_vpn = 8888
 # {VPN IP: country} - Any is default for all countries
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.12": "Israel"}
+list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.17": "Israel"}
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -140,19 +140,17 @@ def handle_connect(skt, addr, client_id, msg, client):
 
 def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2):
     data = f"{addr}~{port}~{client_id}~{client_code_1}~{client_code_2}"
-    # vpn_servers[server_ip].send(connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
     send_atomic(vpn_servers[server_ip], connect_protocol.create_msg(f"{thread_id}~{data}", "checkup1"))
 
     # Get VPN data
     cmd, server_data = server_handler.get_thread_data(vpn_servers[server_ip], threading.get_native_id())
     _, vpn_port, v_ip, server_code = server_data.split("~")  # v stands for virtual
 
-    # Craft data for client
-    data = f"{server_ip}~{vpn_port}~{v_ip}~{server_code}"  # vpn_ip~vpn_port~v_ip
+    # Craft data for client: vpn_ip~vpn_port~v_ip~country
+    data = f"{server_ip}~{vpn_port}~{v_ip}~{server_code}~{list_of_allowed_VPNs[server_ip]}"
 
     # Simple validation
     if cmd == "checkup1":
-        # skt.send(connect_protocol.create_msg(data, "connect_1"))
         send_atomic(skt, connect_protocol.create_msg(data, "connect_1"))
         return True
     elif cmd == "checkup0":
