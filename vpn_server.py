@@ -6,12 +6,12 @@ from collections import defaultdict
 import ssl
 import psutil  # used for calculating load
 
-from scapy_server import OpenServer, tcp_connection
+from vpnserver_files.scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
 
-server_ip = "10.0.0.12"
-my_private_ip = "10.0.0.12"  # physical
+server_ip = "10.0.0.17"
+my_private_ip = "10.0.0.17"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port

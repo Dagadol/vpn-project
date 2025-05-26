@@ -6,12 +6,9 @@ import threading
 import time
 import ssl
 
-import adapter_conf
+from client import adapter_conf, scapy_client, gui_master
 import connect_protocol
-import scapy_client
 import queue
-import gui_master
-
 
 # Global state
 vpn_client = None
@@ -25,7 +22,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.17", 5500)  # main server connection
+main_server_addr = ("10.0.0.17", 5500)  # mainserver_files connection
 context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 context.check_hostname = False  # We're connecting by IP
 context.verify_mode = ssl.CERT_REQUIRED
@@ -36,9 +33,9 @@ adapter_conf.add_static_route(main_server_addr[0])  # create route exception
 
 avail_commands = """
 invalid command!
-Connect: connect to best vpn server
-Disconnect: disconnect from current vpn server
-Change: change vpn server
+Connect: connect to best vpnserver_files
+Disconnect: disconnect from current vpnserver_files
+Change: change vpnserver_files
 Exit: shutdown application
 Else: show list of commands
 """
@@ -387,7 +384,7 @@ def main():
     global key
     with socket.create_connection(main_server_addr) as skt:
         secure_skt = context.wrap_socket(skt, server_hostname=main_server_addr[0])
-        print("Connected to main server")
+        print("Connected to mainserver_files")
 
         t_wait = threading.Thread(target=server_connection, args=[secure_skt], daemon=True)
         t_wait.start()

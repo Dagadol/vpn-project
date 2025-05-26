@@ -5,7 +5,7 @@ import socket
 import threading
 import re
 import connect_protocol
-import db_communication
+from mainserver_files import db_communication
 import time
 
 this_ip = "10.0.0.17"

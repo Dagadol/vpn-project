@@ -1,4 +1,3 @@
-import ssl
 import socket
 import hashlib
 import threading
@@ -8,7 +7,6 @@ from scapy.config import conf
 from scapy.all import sniff
 from scapy.arch.windows import get_windows_if_list
 from scapy.layers.inet import IP, UDP, TCP
-from scapy.layers.l2 import Ether  # used when injecting the traffic to the physical interface
 
 import gui_master
 import connect_protocol
