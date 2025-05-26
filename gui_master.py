@@ -64,17 +64,17 @@ class AppGUI(customtkinter.CTk):
             error_label.configure(text="")
 
             block_buttons(tabs)
-            email = email_entry.get()
+            username = username_entry.get()
             password = password_entry.get()
 
-            check = valid_params(email, password)
+            check = valid_params(username, password)
             if check != "OK":
-                print("invalid email or password")
+                print("invalid username or password")
                 error_label.configure(text=check)
                 block_buttons(tabs, "normal")
                 return
 
-            data = f"{email}~{password}"
+            data = f"{username}~{password}"
             msg = connect_protocol.create_msg(data, chosen)
             self.socket.send(msg)
             cmd, msg = self.receiver.get_thread_data(self.socket)
@@ -138,9 +138,9 @@ class AppGUI(customtkinter.CTk):
         entries_frame.grid_columnconfigure(0, weight=1)
         entries_frame.grid_columnconfigure(1, weight=1)
 
-        # Create the shared email and password entry fields.
-        email_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your username...")
-        email_entry.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        # Create the shared username and password entry fields.
+        username_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your username...")
+        username_entry.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
 
         password_entry = customtkinter.CTkEntry(entries_frame, placeholder_text="Enter your password...", show="*")
         password_entry.grid(row=0, column=1, sticky="ew", padx=10, pady=10)
@@ -235,6 +235,7 @@ class AppGUI(customtkinter.CTk):
 
             def on_country_change(choice):
                 self.selected_country = choice
+                self.add_to_textbox(f"Selected country updated to: {self.selected_country}")
                 print(f"Selected country updated to: {self.selected_country}")
 
             self.country_menu = customtkinter.CTkOptionMenu(
