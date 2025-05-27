@@ -8,7 +8,15 @@ import hashlib
 import time
 
 # const values
+# below is a 2048-bit MODP group from RFC 3526
 BASE = 2  # hd base
+MOD = int("""323170060713110073003389139264238282488179412411402391128420097514007417066343542226196894173635693471
+17901737909704191754605873209195028853758986185622153212175412514901774520270235796078236248884246189477587641105928
+64609941172324542662252219323054091903768052423551912567971587011700105805587765103886184728025797605490356973256152
+61670813393617995413364765591603683178967290731783845896806396719009772021941686472258710314113364293195361934716365
+33209717077448227988588565369208645296636077250268955505928362751121174096972998068410554359584866583291642136218231
+078990999448652468262416972035911852507045361090559""".replace("\n", "", 8))
+
 FIXED_LEN = 4
 command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
                 "exchange", "f_conn", "test", "vpn_in", "checkup", "checkup0", "checkup1", "shutdown", "remove",
@@ -131,23 +139,6 @@ def get_msg(skt, key=None):
         return "break", f"socket was closed {e}"
 
 
-def get_prime() -> int:
-    """
-    generate a secure prime for diffie-helman protocol
-    :return: a 2048-bit MODP group from RFC 3526
-    """
-    # return sympy.nextprime(random.getrandbits(bits))  # used sympy in the past to generate prime
-    # now using a constant prime
-    p_number = """323170060713110073003389139264238282488179412411402391128420097514007417066343542226196894173635693471
-17901737909704191754605873209195028853758986185622153212175412514901774520270235796078236248884246189477587641105928
-64609941172324542662252219323054091903768052423551912567971587011700105805587765103886184728025797605490356973256152
-61670813393617995413364765591603683178967290731783845896806396719009772021941686472258710314113364293195361934716365
-33209717077448227988588565369208645296636077250268955505928362751121174096972998068410554359584866583291642136218231
-078990999448652468262416972035911852507045361090559"""
-    p_number = p_number.replace("\n", "", 8)
-    return int(p_number)
-
-
 def get_key(base: int, key: int, mod: int) -> int:
     """
     exactly like `pow()`, but all values are required.
@@ -166,16 +157,15 @@ def get_key(base: int, key: int, mod: int) -> int:
     return temp_base
     """
 
-    # using python's built in `pow()` function is optimised in C
+    # using python's built in `pow()` function is optimized in C
     return pow(base, key, mod)  # O(log key) time
 
 
 def dh_send(skt) -> bytes | None:
-    mod = get_prime()
     my_key = random.randint(2 ** 224, 2 ** 256 - 1)  # random int between 244 to 256 bits
-    public_key = get_key(BASE, my_key, mod)
+    public_key = get_key(BASE, my_key, MOD)
 
-    skt.send(create_msg(f"{public_key}~{mod}", "exchange"))
+    skt.send(create_msg(f"{public_key}", "exchange"))
     cmd, data = get_msg(skt)
 
     if cmd != "exchange":  # error check
@@ -183,10 +173,10 @@ def dh_send(skt) -> bytes | None:
         return None
 
     recv_key = int(data)  # data is the key from the socket
-    shared_secret = get_key(recv_key, my_key, mod)  # get the shared secret
+    shared_secret = get_key(recv_key, my_key, MOD)  # get the shared secret
 
     # convert to bytes (get the full bytes length, order by big endian)
-    shared_secret_bytes = shared_secret.to_bytes(shared_secret.bit_length() + 7 // 8,  'big')  # int to bytes
+    shared_secret_bytes = shared_secret.to_bytes(shared_secret.bit_length() + 7 // 8, 'big')  # int to bytes
 
     # hash the shared secret in SHA-256 for AES-256
     shared_key = hashlib.sha256(shared_secret_bytes).digest()
@@ -195,25 +185,24 @@ def dh_send(skt) -> bytes | None:
 
 
 def dh_get(skt) -> bytes | None:
-    cmd, data = get_msg(skt)
+    cmd, recv_key = get_msg(skt)
 
     if cmd != "exchange":  # error check
-        print("error at dh_get:", cmd, data)
+        print("error at dh_get:", cmd, recv_key)
         return None
 
     my_key = random.randint(2 ** 224, 2 ** 256 - 1)  # set random private key
-    recv_key, mod = data.split("~")
 
-    public_key = get_key(BASE, my_key, int(mod))
+    public_key = get_key(BASE, my_key, MOD)
     skt.send(create_msg(str(public_key), "exchange"))
 
-    shared_secret = get_key(int(recv_key), my_key, int(mod))
+    shared_secret = get_key(int(recv_key), my_key, MOD)
     # convert to bytes
     """
     # shared_key = str(shared_secret).encode()  # encoding the key, in string
     """
     # (get the full bytes length, order by big endian)
-    shared_secret_bytes = shared_secret.to_bytes(shared_secret.bit_length() + 7 // 8,  'big')  # int to bytes
+    shared_secret_bytes = shared_secret.to_bytes(shared_secret.bit_length() + 7 // 8, 'big')  # int to bytes
 
     # hash the shared secret in SHA-256 for AES-256
     shared_key = hashlib.sha256(shared_secret_bytes).digest()
