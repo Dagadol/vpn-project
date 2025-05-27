@@ -6,6 +6,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+PATH = r"mainserver_files\users.db"
+
 # Email credentials and settings
 smtp_server = "smtp.gmail.com"
 smtp_port = 465
@@ -37,8 +39,8 @@ class DatabaseConnection:
 
 
 if __name__ != '__main__':
-    if not os.path.exists(os.path.abspath("users.db")):
-        db = DatabaseConnection("users.db")
+    if not os.path.exists(os.path.abspath(PATH)):
+        db = DatabaseConnection(PATH)
         db.initiate_db()
     print("database exist already")
 
@@ -54,8 +56,7 @@ class Client:
         self.code = tuple()  # (code, time, num of try)
 
         # connect to database
-        path = "users.db"
-        self.conn = sqlite3.connect(path)
+        self.conn = sqlite3.connect(PATH)
         self.cursor = self.conn.cursor()
 
     @property
