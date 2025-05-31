@@ -6,7 +6,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-PATH = r"mainserver_files\users.db"
+PATH = r"mainserver_files\tables.db"
 
 # Email credentials and settings
 smtp_server = "smtp.gmail.com"
@@ -22,20 +22,30 @@ class DatabaseConnection:
         self.cursor = self.conn.cursor()
 
     def initiate_db(self):
-        command = ("CREATE TABLE clients (\n"
-                   "    user_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
-                   "    email TEXT UNIQUE DEFAULT NULL,\n"
-                   "    username TEXT UNIQUE NOT NULL,\n"
-                   "    role TEXT NOT NULL,\n"
-                   "    password_hash TEXT NOT NULL,\n"
-                   "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,\n"
-                   "    last_login TIMESTAMP DEFAULT  CURRENT_TIMESTAMP,\n"  # same as when it was created
-                   "    is_verified BOOLEAN DEFAULT FALSE,\n"
-                   "    is_active BOOLEAN DEFAULT TRUE );\n"
-                   "        ")
+        command_for_clients = ("CREATE TABLE clients (\n"
+                               "    user_id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+                               "    email TEXT UNIQUE DEFAULT NULL,\n"
+                               "    username TEXT UNIQUE NOT NULL,\n"
+                               "    role TEXT NOT NULL,\n"
+                               "    password_hash TEXT NOT NULL,\n"
+                               "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,\n"
+                               "    last_login TIMESTAMP DEFAULT  CURRENT_TIMESTAMP,\n"  # same as when it was created
+                               "    is_verified BOOLEAN DEFAULT FALSE,\n"
+                               "    is_active BOOLEAN DEFAULT TRUE );\n"
+                               "        ")
+
+        command_for_servers = ("""
+                CREATE TABLE IF NOT EXISTS vpn_servers (
+                    ip_address TEXT PRIMARY KEY,
+                    country TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    active BOOLEAN DEFAULT FALSE
+                )
+                """)
 
         with self.conn:
-            self.cursor.execute(command)
+            self.cursor.execute(command_for_clients)
+            self.cursor.execute(command_for_servers)
 
 
 if __name__ != '__main__':
@@ -43,6 +53,111 @@ if __name__ != '__main__':
         db = DatabaseConnection(PATH)
         db.initiate_db()
     print("database exist already")
+
+
+class Server:
+    @staticmethod
+    def _get_sql_conn():
+        try:
+            # connect to database
+            conn = sqlite3.connect(PATH)
+            cursor = conn.cursor()
+            return conn, cursor
+        except Exception as e:
+            print(f"db exception: {e}")
+            return None, None
+
+    @staticmethod
+    def add_server(ip_address, country, password):
+        conn, cursor = Server._get_sql_conn()
+        hashed_pass = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+        try:
+            cursor.execute("INSERT INTO vpn_servers (ip_address, country, password_hash) VALUES (?, ?, ?)",
+                           (ip_address, country, hashed_pass))
+            conn.commit()
+            print("Server added.")
+        except sqlite3.IntegrityError:
+            print("Server with this IP already exists.")
+
+    @staticmethod
+    def remove_server(ip_address):
+        conn, cursor = Server._get_sql_conn()
+        cursor.execute("DELETE FROM vpn_servers WHERE ip_address = ?", (ip_address,))
+        conn.commit()
+        print("Server removed if it existed.")
+
+    @staticmethod
+    def get_countries():
+        conn, cursor = Server._get_sql_conn()
+        cursor.execute("""SELECT country 
+        FROM vpn_servers 
+        WHERE active = TRUE 
+        GROUP BY country""")
+        result = cursor.fetchall()
+        conn.close()
+        return result
+
+    @staticmethod
+    def get_country_by_ip(ip_address):
+        conn, cursor = Server._get_sql_conn()
+        cursor.execute("SELECT country FROM vpn_servers WHERE ip_address = ?", (ip_address,))
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else None
+
+    @staticmethod
+    def check_ip_password(ip_address, password):
+        _, cursor = Server._get_sql_conn()
+
+        # get saved password
+        cursor.execute("SELECT password_hash FROM vpn_servers WHERE ip_address=:ip_address",
+                       {"ip_address": ip_address})
+
+        hashed_pass = cursor.fetchone()[0]
+        if not hashed_pass:
+            return None
+
+        return bcrypt.checkpw(password.encode(), hashed_pass)
+
+    @staticmethod
+    def set_active(ip_address):
+        conn, cursor = Server._get_sql_conn()
+        with conn:
+            cursor.execute("UPDATE vpn_servers SET active=TRUE WHERE ip_address=:ip",
+                           {"ip": ip_address})
+
+    @staticmethod
+    def set_inactive(ip_address):
+        conn, cursor = Server._get_sql_conn()
+        with conn:
+            cursor.execute("UPDATE vpn_servers SET active=FALSE WHERE ip_address=:ip",
+                           {"ip": ip_address})
+
+    @staticmethod
+    def is_active(ip_address):
+        conn, cursor = Server._get_sql_conn()
+        cursor.execute("SELECT active FROM vpn_servers WHERE ip_address=:ip",
+                       {"ip": ip_address})
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else None
+
+    @staticmethod
+    def get_filtered_countries(exception_ip, country_filter):
+        conn, cursor = Server._get_sql_conn()
+        cursor.execute("""
+        SELECT ip_address
+        FROM vpn_servers
+        WHERE ip_address != :ip
+           AND (
+                :country_filter = 'Any'
+                OR country = :country_filter
+                )
+           AND active = TRUE
+        """, {"ip": exception_ip, "country_filter": country_filter})
+        results = cursor.fetchall()
+        conn.close()
+        return results
 
 
 class Client:
@@ -102,7 +217,7 @@ class Client:
         return bool(ans)
 
     def valid_login(self) -> bool:
-        """Assume email is in system"""
+        """Assume username is in system"""
 
         # get saved password
         self.cursor.execute("SELECT password_hash FROM clients WHERE user_id=:user_id",

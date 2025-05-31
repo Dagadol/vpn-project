@@ -1,19 +1,20 @@
+import connect_protocol
+from mainserver_files import db_communication
+
 import ssl
 from collections import defaultdict
 import random
 import socket
 import threading
 import re
-import connect_protocol
-from mainserver_files import db_communication
 import time
 
-this_ip = "10.0.0.17"
+this_ip = "10.0.0.4"
 
 client_port = 5500
 port_for_vpn = 8888
 # {VPN IP: country} - Any is default for all countries
-list_of_allowed_VPNs = {"0.0.0.0": "Any", "10.0.0.17": "Israel"}
+
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
 vpn_servers = dict()  # server IP: socket
@@ -36,7 +37,7 @@ def close_socket(skt):
         del socket_locks[skt]
 
 
-def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
+def get_fastest_vpn(country_filter: str = "Any", exception: str = "255.255.255.255"):
     """
     get the best server info according to the country filter, exception, relative ping to this server and server load.
 
@@ -52,9 +53,7 @@ def get_fastest_vpn(country_filter: str = "Any", exception: str = ""):
     """
     scores = {}  # Store scores for each server
 
-    for ip in vpn_servers:
-        if ip == exception or (country_filter != "Any" and country_filter != list_of_allowed_VPNs[ip]):
-            continue
+    for ip in db_communication.Server.get_filtered_countries(exception, country_filter):
 
         this_thread = threading.get_native_id()  # get this thread id
 
@@ -147,7 +146,7 @@ def connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_
     _, vpn_port, v_ip, server_code = server_data.split("~")  # v stands for virtual
 
     # Craft data for client: vpn_ip~vpn_port~v_ip~country
-    data = f"{server_ip}~{vpn_port}~{v_ip}~{server_code}~{list_of_allowed_VPNs[server_ip]}"
+    data = f"{server_ip}~{vpn_port}~{v_ip}~{server_code}~{db_communication.Server.get_country_by_ip(server_ip)}"
 
     # Simple validation
     if cmd == "checkup1":
@@ -229,7 +228,7 @@ def try_signup(client) -> bool:
 
 def refresh_countries(skt, this_client):
     if this_client.is_verified:
-        countries = [list_of_allowed_VPNs[key] for key in list_of_allowed_VPNs if key in vpn_servers]
+        countries = db_communication.Server.get_countries()
         if not countries:
             countries = "none"
         else:
@@ -322,12 +321,6 @@ def handle_admin(msg, client, skt):
         # skt.send(connect_protocol.create_msg("user is not admin", "error"))
         data = connect_protocol.create_msg("user is not admin", "error")
         send_atomic(skt, data)
-
-
-def send_to_email(client: db_communication.Client):  # todo
-    """sending the code to the client's email"""
-    code = client.code[0]
-    client_email = client.email
 
 
 def generate_new_code(client: db_communication.Client, email) -> str:
@@ -448,8 +441,11 @@ def handle_server_shutdown(msg, vpn_ip):
             continue
         client_skt = client_dict[client][0]  # socket at first index
         thread_msg = client_dict[client][1]  # to thread id at second index
-        # client_skt.send(connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
+
         send_atomic(client_skt, connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
+        db_communication.Server.set_inactive(vpn_ip)
+        print(f"server was set inactive: {vpn_ip}")
+        db_communication.Server.remove_server(vpn_ip)
 
 
 def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
@@ -478,11 +474,31 @@ def listen_for_servers():
     while True:
         vpn_sock, addr = secure_socket.accept()
 
+        """        
         # check if IP address is valid
         if len(list_of_allowed_VPNs) > 1:  # if list was created with values
             if addr[0] not in list_of_allowed_VPNs:
                 vpn_sock.close()
                 continue
+        """
+        cmd, msg = connect_protocol.get_msg(vpn_sock)
+        if cmd == "f_conn":
+            conn_status = db_communication.Server.check_ip_password(addr[0], msg)
+            if not conn_status:
+                print(f"bad server login: {addr}, {msg}\nremoving server")
+                if conn_status is not None:
+                    db_communication.Server.remove_server(addr[0])
+                    print("suspicious request: valid ip, invalid password")
+                vpn_sock.close()
+                continue
+            else:
+                if db_communication.Server.is_active(addr[0]):
+                    print(f"|VERY BAD| suspicious request: valid ip ({addr}), valid password ({msg})")
+                    vpn_sock.close()
+                    continue
+                else:
+                    db_communication.Server.set_active(addr[0])
+
         vpn_sock.send(connect_protocol.create_msg("hello world", "f_conn"))
         print(f"new server connected from: {addr}")
         socket_locks[vpn_sock] = threading.Lock()
@@ -528,8 +544,31 @@ def listen_for_clients():
         threads.append(t)
 
 
+def server_side():
+    while True:
+        command = input("del or add or exit: ").lower()
+        if command == "del":
+            ip = input("DEL> enter ip or 'back': ").lower()
+            active = db_communication.Server.is_active(ip)
+            if not active and active is not None:
+                db_communication.Server.remove_server(ip)
+        elif command == "add":
+            ip = input("ADD> enter ip or 'back': ").lower()
+            if ip != "back":
+                password = input("ADD> enter password or 'back': ").lower()
+                country = input("ADD> enter country or 'back': ")
+                if password != "back" and country != "back":
+                    db_communication.Server.add_server(ip, country, password)
+        elif command == "exit":
+            print("EXIT> Y\\N ")
+            break
+
+
 if __name__ == '__main__':
     t_server = threading.Thread(target=listen_for_servers)
+    t_clients = threading.Thread(target=listen_for_clients)
     t_server.start()
-    listen_for_clients()
+    t_clients.start()
+    server_side()
     t_server.join()
+    t_clients.join()
