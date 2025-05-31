@@ -13,7 +13,6 @@ this_ip = "10.0.0.4"
 
 client_port = 5500
 port_for_vpn = 8888
-# {VPN IP: country} - Any is default for all countries
 
 # might use API of IP tracker. But manually assigning the country is perfectly fine as well
 
@@ -54,6 +53,12 @@ def get_fastest_vpn(country_filter: str = "Any", exception: str = "255.255.255.2
     scores = {}  # Store scores for each server
 
     for ip in db_communication.Server.get_filtered_countries(exception, country_filter):
+        try:
+            ip = ip[0]
+            if not ip:
+                continue
+        except IndexError:
+            continue
 
         this_thread = threading.get_native_id()  # get this thread id
 
@@ -429,6 +434,12 @@ def handle_client(skt, addr, client_id, client: db_communication.Client):
 
 
 def handle_server_shutdown(msg, vpn_ip):
+    db_communication.Server.set_inactive(vpn_ip)
+    print(f"server was set inactive: {vpn_ip}")
+    db_communication.Server.remove_server(vpn_ip)
+
+    del vpn_servers[vpn_ip]  # forget vpn
+
     if msg == "none":
         print("server without users was disconnected")
         return
@@ -443,9 +454,6 @@ def handle_server_shutdown(msg, vpn_ip):
         thread_msg = client_dict[client][1]  # to thread id at second index
 
         send_atomic(client_skt, connect_protocol.create_msg(f"{thread_msg}~server was closed~{vpn_ip}", "shutdown"))
-        db_communication.Server.set_inactive(vpn_ip)
-        print(f"server was set inactive: {vpn_ip}")
-        db_communication.Server.remove_server(vpn_ip)
 
 
 def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
@@ -455,9 +463,8 @@ def wait_for_update(skt, vpn_ip, stop_event: threading.Event):
         if cmd == "shutdown":
             handle_server_shutdown(msg, vpn_ip)
             print("server saved:", vpn_servers)
-            del vpn_servers[vpn_ip]  # forget vpn
+
             stop_event.set()
-            # skt.close()
             close_socket(skt)
             break
 
@@ -474,13 +481,6 @@ def listen_for_servers():
     while True:
         vpn_sock, addr = secure_socket.accept()
 
-        """        
-        # check if IP address is valid
-        if len(list_of_allowed_VPNs) > 1:  # if list was created with values
-            if addr[0] not in list_of_allowed_VPNs:
-                vpn_sock.close()
-                continue
-        """
         cmd, msg = connect_protocol.get_msg(vpn_sock)
         if cmd == "f_conn":
             conn_status = db_communication.Server.check_ip_password(addr[0], msg)
@@ -498,6 +498,10 @@ def listen_for_servers():
                     continue
                 else:
                     db_communication.Server.set_active(addr[0])
+        else:
+            print(f"no password: {addr}")
+            vpn_sock.close()
+            continue
 
         vpn_sock.send(connect_protocol.create_msg("hello world", "f_conn"))
         print(f"new server connected from: {addr}")
@@ -545,6 +549,7 @@ def listen_for_clients():
 
 
 def server_side():
+    time.sleep(2)  # to not be overridden
     while True:
         command = input("del or add or exit: ").lower()
         if command == "del":
@@ -560,8 +565,9 @@ def server_side():
                 if password != "back" and country != "back":
                     db_communication.Server.add_server(ip, country, password)
         elif command == "exit":
-            print("EXIT> Y\\N ")
-            break
+            command = input("EXIT> Y\\N ").lower()
+            if command == "y":
+                break
 
 
 if __name__ == '__main__':
