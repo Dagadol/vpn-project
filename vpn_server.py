@@ -10,8 +10,8 @@ from vpnserver_files.scapy_server import OpenServer, tcp_connection
 import connect_protocol
 
 
-server_ip = "10.0.0.17"
-my_private_ip = "10.0.0.17"  # physical
+server_ip = "10.0.0.4"
+my_private_ip = "10.0.0.4"  # physical
 
 server_port = 8888
 udp_port = 5123  # could be tcp port for aes key, then in there receive the udp port
@@ -185,9 +185,13 @@ def handle_server(my_socket):
 
 
 def main():
+    password = input("Enter password: ").lower()
+
     my_socket = socket.create_connection((server_ip, server_port))
     secure_skt = context.wrap_socket(my_socket, server_hostname=server_ip)
     secure_skt.settimeout(5)
+
+    secure_skt.send(connect_protocol.create_msg(password, "f_conn"))
 
     socket_locks[secure_skt] = threading.Lock()
 
@@ -200,6 +204,8 @@ def main():
     finally:
         handle_shutdown(secure_skt)
         my_socket.close()
+        import sys
+        sys.exit()
 
 
 if __name__ == '__main__':
