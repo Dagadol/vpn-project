@@ -1,5 +1,6 @@
 import connect_protocol
-import nat_class
+from vpnserver_files import nat_class
+
 import socket
 from scapy.all import sniff, send
 from scapy.layers.inet import IP

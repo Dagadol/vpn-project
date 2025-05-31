@@ -4,7 +4,7 @@ import time
 import netifaces
 from scapy.arch.windows import get_windows_if_list
 
-import gui_master
+from client import gui_master
 
 
 def get_index_scapy(name="wrgrd"):

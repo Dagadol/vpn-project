@@ -8,9 +8,9 @@ from scapy.all import sniff
 from scapy.arch.windows import get_windows_if_list
 from scapy.layers.inet import IP, UDP, TCP
 
-import gui_master
+from client import gui_master
 import connect_protocol
-from adapter_conf import get_physical_private_ip
+from client.adapter_conf import get_physical_private_ip
 
 
 def tcp_udp(p):

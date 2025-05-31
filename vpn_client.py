@@ -5,10 +5,10 @@ import socket
 import threading
 import time
 import ssl
+import queue
 
 from client import adapter_conf, scapy_client, gui_master
 import connect_protocol
-import queue
 
 # Global state
 vpn_client = None
