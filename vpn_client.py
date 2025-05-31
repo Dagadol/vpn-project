@@ -407,6 +407,8 @@ def main():
 
         secure_skt.close()
     print("Connection closed")
+    import sys
+    sys.exit()
 
 
 if __name__ == '__main__':
