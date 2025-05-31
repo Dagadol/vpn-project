@@ -78,12 +78,14 @@ class Server:
             print("Server added.")
         except sqlite3.IntegrityError:
             print("Server with this IP already exists.")
+        conn.close()
 
     @staticmethod
     def remove_server(ip_address):
         conn, cursor = Server._get_sql_conn()
         cursor.execute("DELETE FROM vpn_servers WHERE ip_address = ?", (ip_address,))
         conn.commit()
+        conn.close()
         print("Server removed if it existed.")
 
     @staticmethod
@@ -95,7 +97,12 @@ class Server:
         GROUP BY country""")
         result = cursor.fetchall()
         conn.close()
-        return result
+
+        if isinstance(result, list):
+            countries = [country[0] for country in result]
+        else:
+            countries = result[0]
+        return countries
 
     @staticmethod
     def get_country_by_ip(ip_address):
@@ -107,7 +114,7 @@ class Server:
 
     @staticmethod
     def check_ip_password(ip_address, password):
-        _, cursor = Server._get_sql_conn()
+        conn, cursor = Server._get_sql_conn()
 
         # get saved password
         cursor.execute("SELECT password_hash FROM vpn_servers WHERE ip_address=:ip_address",
@@ -116,7 +123,7 @@ class Server:
         hashed_pass = cursor.fetchone()[0]
         if not hashed_pass:
             return None
-
+        conn.close()
         return bcrypt.checkpw(password.encode(), hashed_pass)
 
     @staticmethod
