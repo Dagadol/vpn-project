@@ -1,0 +1,7 @@
+use:
+
+openssl req -x509 -newkey rsa:2048 -nodes \
+-keyout server.key -out server.crt -days 825 \
+-config server_conf.cnf -extensions v3_main_server
+
+install server.crt on all connected devices with certmgr.msc
