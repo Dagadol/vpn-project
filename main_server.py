@@ -434,7 +434,7 @@ def handle_client(skt, addr, client_id, client: db_communication.Client):
 
 
 def handle_server_shutdown(msg, vpn_ip):
-    db_communication.Server.set_inactive(vpn_ip)
+    # db_communication.Server.set_inactive(vpn_ip)
     print(f"server was set inactive: {vpn_ip}")
     db_communication.Server.remove_server(vpn_ip)
 

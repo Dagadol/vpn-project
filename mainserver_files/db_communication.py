@@ -134,13 +134,6 @@ class Server:
                            {"ip": ip_address})
 
     @staticmethod
-    def set_inactive(ip_address):
-        conn, cursor = Server._get_sql_conn()
-        with conn:
-            cursor.execute("UPDATE vpn_servers SET active=FALSE WHERE ip_address=:ip",
-                           {"ip": ip_address})
-
-    @staticmethod
     def is_active(ip_address):
         conn, cursor = Server._get_sql_conn()
         cursor.execute("SELECT active FROM vpn_servers WHERE ip_address=:ip",
