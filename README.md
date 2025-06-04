@@ -37,7 +37,7 @@ A Python-based VPN simulation framework, designed for Windows only, with client 
 ## 🛠 Prerequisites
 
 - Windows 10 or later (tested).
-- Python 3.9+.
+- Python 3.12+.
 - Administrator privileges (to load and control virtual adapters).
 - Npcap installed in WinPcap compatibility mode.
 - Wireguard windows client is installed.
