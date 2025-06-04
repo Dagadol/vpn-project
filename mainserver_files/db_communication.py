@@ -120,11 +120,11 @@ class Server:
         cursor.execute("SELECT password_hash FROM vpn_servers WHERE ip_address=:ip_address",
                        {"ip_address": ip_address})
 
-        hashed_pass = cursor.fetchone()[0]
+        hashed_pass = cursor.fetchone()
         if not hashed_pass:
             return None
         conn.close()
-        return bcrypt.checkpw(password.encode(), hashed_pass)
+        return bcrypt.checkpw(password.encode(), hashed_pass[0])
 
     @staticmethod
     def set_active(ip_address):
@@ -264,7 +264,7 @@ class Client:
 
     def send_code(self):
         if self.email:
-            with open("email_content.html", "r") as f:
+            with open("mainserver_files/email_content.html", "r") as f:
                 html_content = f.read()
                 html_content = html_content.replace("-code-", self.code[0])
                 html_content = html_content.replace("-name-", self.username)
