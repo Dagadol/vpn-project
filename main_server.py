@@ -9,7 +9,7 @@ import threading
 import re
 import time
 
-this_ip = "10.0.0.4"
+this_ip = "10.0.0.15"
 
 client_port = 5500
 port_for_vpn = 8888
@@ -174,8 +174,7 @@ def handle_change(skt, addr, client_id, msg, client):
     server_ip, thread_id = get_fastest_vpn(country, exception=connected_server)
 
     if not server_ip:
-        send_atomic(skt, connect_protocol.create_msg("no server was found", "change_0"))
-        # skt.send(connect_protocol.create_msg("no server was found", "change_0"))
+        send_atomic(skt, connect_protocol.create_msg("no server was found", "connect_0"))
         return False
 
     status = connect_by_ip(server_ip, client_id, port, skt, addr, thread_id, client_code_1, client_code_2)
@@ -555,8 +554,13 @@ def server_side():
         if command == "del":
             ip = input("DEL> enter ip or 'back': ").lower()
             active = db_communication.Server.is_active(ip)
-            if not active and active is not None:
+            if not active:
                 db_communication.Server.remove_server(ip)
+            elif active is not None:
+                print("server is active, can't delete while active")
+                command = input("Force delete? Y\\N").lower()
+                if command == "y":
+                    db_communication.Server.remove_server(ip)
         elif command == "add":
             ip = input("ADD> enter ip or 'back': ").lower()
             if ip != "back":
