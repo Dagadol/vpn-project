@@ -22,7 +22,7 @@ command_queue = queue.Queue()
 client_handler = connect_protocol.CommandHandler()
 vpn_gui = gui_master.AppGUI(cmd_q=command_queue, receiver=client_handler)
 
-main_server_addr = ("10.0.0.17", 5500)  # mainserver_files connection
+main_server_addr = ("10.0.0.15", 5500)  # mainserver_files connection
 context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 context.check_hostname = False  # We're connecting by IP
 context.verify_mode = ssl.CERT_REQUIRED
@@ -101,7 +101,7 @@ def handle_connect(skt) -> bool:
         return False
     if cmd != "connect_1":
         print("Protocol error:", cmd, msg)
-        vpn_gui.logger.error(f"Protocol error: {cmd} {msg}")
+        vpn_gui.logger.error(f"Protocol error: '{cmd}' '{msg}'")
         return False
 
     # Parse server response
@@ -193,13 +193,13 @@ def handle_change(skt):
 
     vpn_gui.logger.debug("Change server request was sent to the server")
 
-    if cmd == "change_0":
+    if cmd == "connect_0":
         print("Change failed:", msg)
         vpn_gui.logger.error(f"Change failed: {msg}")
         return False
-    if cmd != "change_1":
+    if cmd != "connect_1":
         print("Protocol error:", cmd, msg)
-        vpn_gui.logger.error(f"Protocol error: {cmd}, {msg}")
+        vpn_gui.logger.error(f"Protocol error: '{cmd}', '{msg}'")
         return False
 
     # Parse new server details
@@ -384,7 +384,7 @@ def main():
     global key
     with socket.create_connection(main_server_addr) as skt:
         secure_skt = context.wrap_socket(skt, server_hostname=main_server_addr[0])
-        print("Connected to mainserver_files")
+        print("Connected to main server")
 
         t_wait = threading.Thread(target=server_connection, args=[secure_skt], daemon=True)
         t_wait.start()
