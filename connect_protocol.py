@@ -18,7 +18,7 @@ MOD = int("""3231700607131100730033891392642382824881794124114023911284200975140
 078990999448652468262416972035911852507045361090559""".replace("\n", "", 8))
 
 FIXED_LEN = 4
-command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "change_0", "change_1", "error",
+command_list = ["connect", "dconnect", "change", "exit", "connect_0", "connect_1", "error",
                 "exchange", "f_conn", "test", "vpn_in", "checkup", "checkup0", "checkup1", "shutdown", "remove",
                 "login", "signup", "fail", "success", "logout", "countries", "end-conn", "admin", "verify"]
 
